@@ -60,10 +60,8 @@ jobs:
 
       - name: Upload Release Assets
         run: |
-          for dir in output/*; do
-            if [ -d "$dir" ]; then
-              gh release upload ${{ github.ref }} "$dir"/* --clobber
-            fi
+          for file in output/*; do
+            gh release upload ${{ github.ref }} "$file" --clobber
           done
         
 
