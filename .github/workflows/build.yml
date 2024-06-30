@@ -128,7 +128,7 @@ jobs:
   
   release:
     runs-on: ubuntu-latest
-    needs: [build-x86_64-pc-windows-msvc]
+    needs: [build-x86_64-unknown-linux-gnu,build-x86_64-pc-windows-msvc,build-x86_64-apple-darwin,build-arm64-apple-darwin]
 
     steps:
       # 检出代码
