@@ -13,7 +13,7 @@ env:
 
 jobs:
   build-x86_64-unknown-linux-gnu:
-    name: Build Package
+    name: Build (x86_64-unknown-linux-gnu)
     runs-on: ubuntu-latest
 
     steps:
@@ -40,7 +40,7 @@ jobs:
           path: ./output
 
   build-x86_64-pc-windows-msvc:
-    name: Build Package
+    name: Build (x86_64-pc-windows-msvc)
     runs-on: ubuntu-latest
 
     steps:
@@ -67,7 +67,7 @@ jobs:
           path: ./output
 
   build-x86_64-apple-darwin:
-    name: Build Package
+    name: Build (x86_64-apple-darwin)
     runs-on: ubuntu-latest
 
     steps:
@@ -94,7 +94,7 @@ jobs:
           path: ./output
 
   build-arm64-apple-darwin:
-      name: Build Package
+      name: Build (arm64-apple-darwin)
       runs-on: ubuntu-latest
 
       steps:
