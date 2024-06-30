@@ -48,6 +48,9 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v2
 
+      - name: Set Release name
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -65,7 +68,9 @@ jobs:
       - name: list Release Assets
         run: |
           ls ./output -al &&
-          gh release upload ${{ github.ref }} ./output/curl_x86_64-unknown-linux-gnu --clobber
+          gh release upload ${{ github.ref }} ./output/ --clobber
+        env: 
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
       # - name: Upload Release Assets
       #   run: |
       #     for file in ./output/*; do
