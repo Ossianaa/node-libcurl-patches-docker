@@ -143,7 +143,22 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v3
         with:
-          name: curl_x86_64-unknown-linux-gnu
+          name: curl_x86_64-unknown-linux-gnu.tar.gz
+          path: ./output
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: curl_x86_64-pc-windows-msvc.tar.gz
+          path: ./output
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: curl_x86_64-apple-darwin.tar.gz
+          path: ./output
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: curl_arm64-apple-darwin.tar.gz
           path: ./output
 
       - name: list Release Assets
