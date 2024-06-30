@@ -62,10 +62,13 @@ jobs:
           name: curl_x86_64-unknown-linux-gnu
           path: ./output
 
-      - name: Upload Release Assets
+      - name: list Release Assets
         run: |
-          for file in ./output/*; do
-            gh release upload ${{ github.ref }} ./output/$file --clobber
-          done
+          ls -al
+      # - name: Upload Release Assets
+      #   run: |
+      #     for file in ./output/*; do
+      #       gh release upload ${{ github.ref }} $file --clobber
+      #     done
         
 
