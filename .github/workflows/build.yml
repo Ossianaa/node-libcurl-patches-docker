@@ -8,6 +8,8 @@ on:
   push:
     tags:
       - v*
+env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   build-x86_64-unknown-linux-gnu:
@@ -63,6 +65,5 @@ jobs:
               gh release upload ${{ github.ref }} "$dir"/* --clobber
             fi
           done
-        env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
 
