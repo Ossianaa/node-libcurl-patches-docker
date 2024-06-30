@@ -56,12 +56,10 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: curl_x86_64-unknown-linux-gnu
-          path: output/
+          path: ./
 
       - name: Upload Release Assets
         run: |
-          for file in output/*; do
-            gh release upload ${{ github.ref }} $file
-          done
+          gh release upload ${{ github.ref }} ./curl_x86_64-unknown-linux-gnu
         
 
