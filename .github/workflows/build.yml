@@ -137,7 +137,6 @@ jobs:
 
       - name: Set Release name
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
-
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -150,24 +149,31 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: curl_x86_64-unknown-linux-gnu.tar.gz
-          path: ./output
+          path: ./curl_x86_64-unknown-linux-gnu
       - name: Download build artifacts
         uses: actions/download-artifact@v3
         with:
           name: curl_x86_64-pc-windows-msvc.tar.gz
-          path: ./output
+          path: ./curl_x86_64-pc-windows-msvc
       - name: Download build artifacts
         uses: actions/download-artifact@v3
         with:
           name: curl_x86_64-apple-darwin.tar.gz
-          path: ./output
+          path: ./curl_x86_64-apple-darwin
       - name: Download build artifacts
         uses: actions/download-artifact@v3
         with:
           name: curl_arm64-apple-darwin.tar.gz
-          path: ./output
+          path: ./curl_arm64-apple-darwin
+          
+      - name: Compress as tar
+        run: |
+          tar -czf ./output/curl_x86_64-unknown-linux-gnu.tar.gz -C ./curl_x86_64-unknown-linux-gnu .
+          tar -czf ./output/curl_x86_64-pc-windows-msvc.tar.gz -C ./curl_x86_64-pc-windows-msvc .
+          tar -czf ./output/curl_x86_64-apple-darwin.tar.gz -C ./curl_x86_64-apple-darwin .
+          tar -czf ./output/curl_arm64-apple-darwin.tar.gz -C ./curl_arm64-apple-darwin .
 
-      - name: list Release Assets
+      - name: list and Release Assets
         run: |
           ls ./output -al &&
            for file in ./output/*; do
