@@ -64,7 +64,7 @@ jobs:
 
       - name: list Release Assets
         run: |
-          ls ./output -al
+          ls ./output -al &&
           gh release upload ./output/curl_x86_64-unknown-linux-gnu --clobber
       # - name: Upload Release Assets
       #   run: |
