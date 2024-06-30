@@ -64,7 +64,7 @@ jobs:
 
       - name: list Release Assets
         run: |
-          ls -al
+          ls ./output -al
       # - name: Upload Release Assets
       #   run: |
       #     for file in ./output/*; do
