@@ -68,13 +68,9 @@ jobs:
       - name: list Release Assets
         run: |
           ls ./output -al &&
-          gh release upload ${{ github.ref }} ./output/ --clobber
+           for file in ./output/*; do
+            gh release upload $RELEASE_VERSION $file --clobber
+          done
         env: 
           RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
-      # - name: Upload Release Assets
-      #   run: |
-      #     for file in ./output/*; do
-      #       gh release upload ${{ github.ref }} $file --clobber
-      #     done
-        
-
+          
