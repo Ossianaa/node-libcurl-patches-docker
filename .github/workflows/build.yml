@@ -165,9 +165,10 @@ jobs:
         with:
           name: curl_arm64-apple-darwin.tar.gz
           path: ./curl_arm64-apple-darwin
-          
+
       - name: Compress as tar
         run: |
+          mkdir output
           tar -czf ./output/curl_x86_64-unknown-linux-gnu.tar.gz -C ./curl_x86_64-unknown-linux-gnu .
           tar -czf ./output/curl_x86_64-pc-windows-msvc.tar.gz -C ./curl_x86_64-pc-windows-msvc .
           tar -czf ./output/curl_x86_64-apple-darwin.tar.gz -C ./curl_x86_64-apple-darwin .
