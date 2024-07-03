@@ -79,6 +79,8 @@ RUN cd curl-${CURL_COMMIT} && \
       -DBUILD_SHARED_LIBS=0 \
       -DCMAKE_BUILD_TYPE=Release \
       -DOPENSSL_ROOT_DIR=/boringssl-${BORINGSSL_COMMIT}/build/ \
+      -DZLIB_INCLUDE_DIR=/zlib-${ZLIB_COMMIT}/build/installed/include \
+      -DZLIB_LIBRARY=/zlib-${ZLIB_COMMIT}/build/installed/lib/libz.a \
       -DUSE_NGHTTP2=1 \
       -DNGHTTP2_INCLUDE_DIR=/nghttp2-${NGHTTP2_COMMIT}/build/installed/include \
       -DNGHTTP2_LIBRARY=/nghttp2-${NGHTTP2_COMMIT}/build/installed/lib/libnghttp2.a \
