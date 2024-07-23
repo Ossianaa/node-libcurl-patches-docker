@@ -38,6 +38,33 @@ jobs:
         with:
           name: curl_x86_64-unknown-linux-gnu.tar.gz
           path: ./output
+          
+  build-arm64-unknown-linux-gnu:
+    name: Build (arm64-unknown-linux-gnu)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Build the Docker image
+        run: docker build . -f Dockerfile-arm64-unknown-linux-gnu -t curl_arm64-unknown-linux-gnu
+
+      - name: Run the Docker container
+        run: docker run --rm -v ./output:/output curl_arm64-unknown-linux-gnu
+      
+      - name: Compress as tar
+        run: |
+          tar -czf ./curl_arm64-unknown-linux-gnu.tar.gz -C ./output .
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: curl_arm64-unknown-linux-gnu.tar.gz
+          path: ./output
 
   build-x86_64-pc-windows-msvc:
     name: Build (x86_64-pc-windows-msvc)
@@ -128,7 +155,7 @@ jobs:
   
   release:
     runs-on: ubuntu-latest
-    needs: [build-x86_64-unknown-linux-gnu,build-x86_64-pc-windows-msvc,build-x86_64-apple-darwin,build-arm64-apple-darwin]
+    needs: [build-x86_64-unknown-linux-gnu,build-arm64-unknown-linux-gnu,build-x86_64-pc-windows-msvc,build-x86_64-apple-darwin,build-arm64-apple-darwin]
 
     steps:
       # 检出代码
@@ -153,6 +180,11 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v3
         with:
+          name: curl_arm64-unknown-linux-gnu.tar.gz
+          path: ./curl_arm64-unknown-linux-gnu
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
           name: curl_x86_64-pc-windows-msvc.tar.gz
           path: ./curl_x86_64-pc-windows-msvc
       - name: Download build artifacts
@@ -170,6 +202,7 @@ jobs:
         run: |
           mkdir output
           tar -czf ./output/curl_x86_64-unknown-linux-gnu.tar.gz -C ./curl_x86_64-unknown-linux-gnu .
+          tar -czf ./output/curl_arm64-unknown-linux-gnu.tar.gz -C ./curl_arm64-unknown-linux-gnu .
           tar -czf ./output/curl_x86_64-pc-windows-msvc.tar.gz -C ./curl_x86_64-pc-windows-msvc .
           tar -czf ./output/curl_x86_64-apple-darwin.tar.gz -C ./curl_x86_64-apple-darwin .
           tar -czf ./output/curl_arm64-apple-darwin.tar.gz -C ./curl_arm64-apple-darwin .
