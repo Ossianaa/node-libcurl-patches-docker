@@ -359,7 +359,7 @@ index 494b660a9..5ad277a9a 100644
    Curl_safefree(sslc->cert_blob);
    Curl_safefree(sslc->ca_info_blob);
 diff --git a/lib/ws.c b/lib/ws.c
-index 3c1964b86..cd51d4417 100644
+index 3c1964b86..54f95351f 100644
 --- a/lib/ws.c
 +++ b/lib/ws.c
 @@ -540,12 +540,22 @@ CURLcode Curl_ws_request(struct Curl_easy *data, REQTYPE *req)
@@ -453,7 +453,7 @@ index 3c1964b86..cd51d4417 100644
 +      }
 +      headers = headers->next;
 +  }
-+  size_t use_size = head_protocol[0] != 0 ? sizeof(heads)/sizeof(heads[0]) : sizeof(heads)/(sizeof(heads[0]) - 1);
++  size_t use_size = head_protocol[0] != 0 ? sizeof(heads)/sizeof(heads[0]) : ((sizeof(heads)/sizeof(heads[0])) - 1);
 +  data->set.headers = NULL;
    /* 16 bytes random */
    result = Curl_rand(data, (unsigned char *)rand, sizeof(rand));
