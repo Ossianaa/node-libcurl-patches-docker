@@ -359,7 +359,7 @@ index 494b660a9..5ad277a9a 100644
    Curl_safefree(sslc->cert_blob);
    Curl_safefree(sslc->ca_info_blob);
 diff --git a/lib/ws.c b/lib/ws.c
-index 3c1964b86..514d696a1 100644
+index 3c1964b86..cd51d4417 100644
 --- a/lib/ws.c
 +++ b/lib/ws.c
 @@ -540,12 +540,22 @@ CURLcode Curl_ws_request(struct Curl_easy *data, REQTYPE *req)
@@ -411,7 +411,7 @@ index 3c1964b86..514d696a1 100644
 +      "Sec-WebSocket-Extensions:", "permessage-deflate; client_max_window_bits"
 +    },
 +    {
-+      "Sec-WebSocket-Protocol", ""
++      "Sec-WebSocket-Protocol:", ""
 +    },
    };
 -  heads[3].val = &keyval[0];
