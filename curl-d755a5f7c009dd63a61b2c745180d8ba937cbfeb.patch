@@ -359,7 +359,7 @@ index 494b660a9..5ad277a9a 100644
    Curl_safefree(sslc->cert_blob);
    Curl_safefree(sslc->ca_info_blob);
 diff --git a/lib/ws.c b/lib/ws.c
-index 3c1964b86..479084177 100644
+index 3c1964b86..514d696a1 100644
 --- a/lib/ws.c
 +++ b/lib/ws.c
 @@ -540,12 +540,22 @@ CURLcode Curl_ws_request(struct Curl_easy *data, REQTYPE *req)
@@ -401,14 +401,18 @@ index 3c1964b86..479084177 100644
      {
        /* The request MUST include a header field with the name
           |Sec-WebSocket-Key|. The value of this header field MUST be a nonce
-@@ -564,10 +583,41 @@ CURLcode Curl_ws_request(struct Curl_easy *data, REQTYPE *req)
+@@ -564,10 +583,53 @@ CURLcode Curl_ws_request(struct Curl_easy *data, REQTYPE *req)
           base64-encoded (see Section 4 of [RFC4648]). The nonce MUST be
           selected randomly for each connection. */
        "Sec-WebSocket-Key:", NULL,
+-    }
 +    },
 +    {
 +      "Sec-WebSocket-Extensions:", "permessage-deflate; client_max_window_bits"
-     }
++    },
++    {
++      "Sec-WebSocket-Protocol", ""
++    },
    };
 -  heads[3].val = &keyval[0];
 -
@@ -418,6 +422,8 @@ index 3c1964b86..479084177 100644
 +  char head_useragent[512];
 +  char head_origin[512];
 +  char head_cookie[512];
++  char head_protocol[512];
++  memset(head_protocol, 0, 512);
 +  while (headers && headers->data) {
 +      size_t len = strlen(headers->data);
 +      const char* chr = NULL;
@@ -439,9 +445,25 @@ index 3c1964b86..479084177 100644
 +          head_cookie[len - 8] = '\0';
 +          heads[8].val = &head_cookie[0];
 +      }
++      else if (chr = strstr(headers->data, "Sec-WebSocket-Protocol: "))
++      {
++          strncpy(head_protocol, chr + 24, len - 24);
++          head_protocol[len - 24] = '\0';
++          heads[11].val = &head_protocol[0];
++      }
 +      headers = headers->next;
 +  }
++  size_t use_size = head_protocol[0] != 0 ? sizeof(heads)/sizeof(heads[0]) : sizeof(heads)/(sizeof(heads[0]) - 1);
 +  data->set.headers = NULL;
    /* 16 bytes random */
    result = Curl_rand(data, (unsigned char *)rand, sizeof(rand));
    if(result)
+@@ -580,7 +642,7 @@ CURLcode Curl_ws_request(struct Curl_easy *data, REQTYPE *req)
+     return CURLE_FAILED_INIT;
+   strcpy(keyval, randstr);
+   free(randstr);
+-  for(i = 0; !result && (i < sizeof(heads)/sizeof(heads[0])); i++) {
++  for(i = 0; !result && (i < use_size); i++) {
+     if(!Curl_checkheaders(data, STRCONST(heads[i].name))) {
+ #ifdef USE_HYPER
+       char field[128];
