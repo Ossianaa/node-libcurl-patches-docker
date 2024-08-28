@@ -25,9 +25,18 @@ index c1207a3b7..602cc83d1 100644
  #define TLSEXT_TYPE_server_name 0
  #define TLSEXT_TYPE_status_request 5
 diff --git a/ssl/extensions.cc b/ssl/extensions.cc
-index b13400097..07041c87d 100644
+index b13400097..b3a8ac6a5 100644
 --- a/ssl/extensions.cc
 +++ b/ssl/extensions.cc
+@@ -396,7 +396,7 @@ static const uint16_t kVerifySignatureAlgorithms[] = {
+     SSL_SIGN_RSA_PKCS1_SHA512,
+ 
+     // For now, SHA-1 is still accepted but least preferable.
+-    SSL_SIGN_RSA_PKCS1_SHA1,
++    //SSL_SIGN_RSA_PKCS1_SHA1,
+ };
+ 
+ // kSignSignatureAlgorithms is the default list of supported signature
 @@ -420,8 +420,8 @@ static const uint16_t kSignSignatureAlgorithms[] = {
      SSL_SIGN_RSA_PKCS1_SHA512,
  
