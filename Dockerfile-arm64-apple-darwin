@@ -28,7 +28,7 @@ RUN apt-get update && \
         golang \
         ninja-build \
         && \
-    pip3 install --break-system-packages conan==1.62.0 && \
+    pip3 install conan==1.62.0 && \
     git clone https://github.com/tpoechtrager/osxcross.git && \
     wget -O osxcross/tarballs/MacOSX11.3.sdk.tar.xz https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.3.sdk.tar.xz && \
     cd osxcross && \
