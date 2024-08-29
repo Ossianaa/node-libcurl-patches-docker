@@ -13,7 +13,11 @@ ENV TZ=Etc/UTC
 RUN apt-get update && \
     apt-get install -y build-essential
 
-RUN apt-get install -y curl golang cmake ninja-build
+RUN apt-get install -y curl golang ninja-build
+RUN curl -L https://github.com/Kitware/CMake/releases/download/v3.20.0/cmake-3.20.0.tar.gz -o ./cmake-3.20.0.tar.gz && \
+    tar -zxvf cmake-3.20.0.tar.gz && \
+    cd cmake-3.20.0 && ./bootstrap && \
+    make && make install
 
 RUN curl -L https://github.com/google/brotli/archive/${BROTLI_COMMIT}.tar.gz -o brotli-${BROTLI_COMMIT}.tar.gz && \
     tar -xf brotli-${BROTLI_COMMIT}.tar.gz
