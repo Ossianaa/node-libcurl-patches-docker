@@ -11,6 +11,7 @@ RUN apt-get update && \
         curl \
         golang \
         ninja-build \
+        libssl-dev \
         python3-pip && \
     pip3 install conan==1.62.0 && \
     rm -rf \
