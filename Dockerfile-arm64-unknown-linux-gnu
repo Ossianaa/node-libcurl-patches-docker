@@ -1,5 +1,5 @@
 
-FROM debian:12.4-slim as stage1
+FROM debian:11-slim as stage1
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -124,7 +124,7 @@ RUN mkdir dist && \
     cp /boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a /dist
 
 
-FROM ubuntu:20.04 as stage2
+FROM ubuntu:18.04 as stage2
 
 COPY --from=stage1 /dist /curl-dist
 

@@ -1,4 +1,4 @@
-FROM ubuntu:20.04 as stage1
+FROM ubuntu:18.04 as stage1
 
 ARG CURL_COMMIT=d755a5f7c009dd63a61b2c745180d8ba937cbfeb
 ARG BORINGSSL_COMMIT=23824fa0fed94f4660ffafb15aaea8b317f2c8a6
