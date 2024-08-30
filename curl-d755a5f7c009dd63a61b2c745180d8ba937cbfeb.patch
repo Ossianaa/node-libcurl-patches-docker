@@ -1,14 +1,18 @@
 diff --git a/include/curl/curl.h b/include/curl/curl.h
-index bf71d82fb..40ef8a2c6 100644
+index bf71d82fb..11b6f867b 100644
 --- a/include/curl/curl.h
 +++ b/include/curl/curl.h
-@@ -2209,7 +2209,8 @@ typedef enum {
+@@ -2209,7 +2209,12 @@ typedef enum {
  
    /* set a specific client IP for HAProxy PROXY protocol header? */
    CURLOPT(CURLOPT_HAPROXY_CLIENT_IP, CURLOPTTYPE_STRINGPOINT, 323),
 -
 +  
 +  CURLOPT(CURLOPT_TLS_EXTENSION_PERMUTATION, CURLOPTTYPE_STRINGPOINT, 324),
++  CURLOPT(CURLOPT_HTTP2_PSEUDO_HEADERS_ORDER, CURLOPTTYPE_STRINGPOINT, 325),
++  CURLOPT(CURLOPT_HTTP2_SETTINGS, CURLOPTTYPE_STRINGPOINT, 326),
++  CURLOPT(CURLOPT_HTTP2_WINDOW_UPDATE, CURLOPTTYPE_LONG, 327),
++  CURLOPT(CURLOPT_HTTP2_STREAMS, CURLOPTTYPE_STRINGPOINT, 328),
    CURLOPT_LASTENTRY /* the last unused */
  } CURLoption;
  
@@ -36,33 +40,172 @@ index ba14972e2..2b357e281 100644
 -#endif /* HEADER_CURL_SETUP_H */
 +#endif /* HEADER_CURL_SETUP_H */
 \ No newline at end of file
+diff --git a/lib/dynhds.c b/lib/dynhds.c
+index 979b3e825..602d0a1fb 100644
+--- a/lib/dynhds.c
++++ b/lib/dynhds.c
+@@ -133,6 +133,16 @@ void Curl_dynhds_set_opts(struct dynhds *dynhds, int opts)
+ {
+   dynhds->opts = opts;
+ }
++void Curl_dynhds_set_opt(struct dynhds *dynhds, int opt)
++{
++  dynhds->opts |= opt;
++}
++
++void Curl_dynhds_del_opt(struct dynhds *dynhds, int opt)
++{
++  dynhds->opts &= ~opt;
++}
++
+ 
+ struct dynhds_entry *Curl_dynhds_getn(struct dynhds *dynhds, size_t n)
+ {
+diff --git a/lib/dynhds.h b/lib/dynhds.h
+index 8a053480e..f9f38e8b1 100644
+--- a/lib/dynhds.h
++++ b/lib/dynhds.h
+@@ -53,7 +53,7 @@ struct dynhds {
+ 
+ #define DYNHDS_OPT_NONE          (0)
+ #define DYNHDS_OPT_LOWERCASE     (1 << 0)
+-
++#define DYNHDS_OPT_LOWERCASE_VAL (1 << 1)
+ /**
+  * Init for use on first time or after a reset.
+  * Allow `max_entries` headers to be added, 0 for unlimited.
+@@ -82,7 +82,8 @@ size_t Curl_dynhds_count(struct dynhds *dynhds);
+  * This will not have an effect on already existing headers.
+  */
+ void Curl_dynhds_set_opts(struct dynhds *dynhds, int opts);
+-
++void Curl_dynhds_set_opt(struct dynhds *dynhds, int opt);
++void Curl_dynhds_del_opt(struct dynhds *dynhds, int opt);
+ /**
+  * Return the n-th header entry or NULL if it does not exist.
+  */
+diff --git a/lib/easyoptions.c b/lib/easyoptions.c
+index e69c658b0..6f28d2ee7 100644
+--- a/lib/easyoptions.c
++++ b/lib/easyoptions.c
+@@ -133,6 +133,10 @@ struct curl_easyoption Curl_easyopts[] = {
+   {"HSTS_CTRL", CURLOPT_HSTS_CTRL, CURLOT_LONG, 0},
+   {"HTTP09_ALLOWED", CURLOPT_HTTP09_ALLOWED, CURLOT_LONG, 0},
+   {"HTTP200ALIASES", CURLOPT_HTTP200ALIASES, CURLOT_SLIST, 0},
++  {"HTTP2_PSEUDO_HEADERS_ORDER", CURLOPT_HTTP2_PSEUDO_HEADERS_ORDER, CURLOT_STRING, 0},
++  {"HTTP2_SETTINGS", CURLOPT_HTTP2_SETTINGS, CURLOT_STRING, 0},
++  {"HTTP2_STREAMS", CURLOPT_HTTP2_STREAMS, CURLOT_STRING, 0},
++  {"HTTP2_WINDOW_UPDATE", CURLOPT_HTTP2_WINDOW_UPDATE, CURLOT_LONG, 0},
+   {"HTTPAUTH", CURLOPT_HTTPAUTH, CURLOT_VALUES, 0},
+   {"HTTPGET", CURLOPT_HTTPGET, CURLOT_LONG, 0},
+   {"HTTPHEADER", CURLOPT_HTTPHEADER, CURLOT_SLIST, 0},
+@@ -373,6 +377,6 @@ struct curl_easyoption Curl_easyopts[] = {
+  */
+ int Curl_easyopts_check(void)
+ {
+-  return ((CURLOPT_LASTENTRY%10000) != (323 + 1));
++  return ((CURLOPT_LASTENTRY%10000) != (328 + 1));
+ }
+ #endif
 diff --git a/lib/http.c b/lib/http.c
-index 40ef70df5..676caa8e5 100644
+index 40ef70df5..ffcc9068b 100644
 --- a/lib/http.c
 +++ b/lib/http.c
-@@ -4910,14 +4910,16 @@ CURLcode Curl_http_req_to_h2(struct dynhds *h2_headers,
-   Curl_dynhds_set_opts(h2_headers, DYNHDS_OPT_LOWERCASE);
-   result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_METHOD),
-                            req->method, strlen(req->method));
-+  if (!result && authority) {
-+      result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_AUTHORITY),
-+          authority, strlen(authority));
-+  }
+@@ -4869,12 +4869,33 @@ static bool h2_non_field(const char *name, size_t namelen)
+   return FALSE;
+ }
+ 
++static CURLcode h2_check_pseudo_header_order(const char *order)
++{
++  if(strlen(order) != 4)
++    return CURLE_BAD_FUNCTION_ARGUMENT;
 +
-   if(!result && scheme) {
-     result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_SCHEME),
-                              scheme, strlen(scheme));
-   }
++  // :method should always be first
++  if(order[0] != 'm')
++    return CURLE_BAD_FUNCTION_ARGUMENT;
++
++  // All pseudo-headers must be present
++  if(!strchr(order, 'm') ||
++     !strchr(order, 'a') ||
++     !strchr(order, 's') ||
++     !strchr(order, 'p'))
++    return CURLE_BAD_FUNCTION_ARGUMENT;
++
++  return CURLE_OK;
++}
++
++
+ CURLcode Curl_http_req_to_h2(struct dynhds *h2_headers,
+                              struct httpreq *req, struct Curl_easy *data)
+ {
+   const char *scheme = NULL, *authority = NULL;
+   struct dynhds_entry *e;
+   size_t i;
++  char *order = "masp";
+   CURLcode result;
+ 
+   DEBUGASSERT(req);
+@@ -4908,25 +4929,44 @@ CURLcode Curl_http_req_to_h2(struct dynhds *h2_headers,
+ 
+   Curl_dynhds_reset(h2_headers);
+   Curl_dynhds_set_opts(h2_headers, DYNHDS_OPT_LOWERCASE);
+-  result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_METHOD),
+-                           req->method, strlen(req->method));
+-  if(!result && scheme) {
+-    result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_SCHEME),
+-                             scheme, strlen(scheme));
+-  }
 -  if(!result && authority) {
 -    result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_AUTHORITY),
 -                             authority, strlen(authority));
 -  }
-+  
-   if(!result && req->path) {
-     result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_PATH),
-                              req->path, strlen(req->path));
+-  if(!result && req->path) {
+-    result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_PATH),
+-                             req->path, strlen(req->path));
+-  }
++  if (data->set.str[STRING_HTTP2_PSEUDO_HEADERS_ORDER]) {
++    order = data->set.str[STRING_HTTP2_PSEUDO_HEADERS_ORDER];
++  }
++  result = h2_check_pseudo_header_order(order);
++  for(i = 0; !result && i < strlen(order); ++i) {
++    switch(order[i]) {
++      case 'm':
++        result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_METHOD),
++                                 req->method, strlen(req->method));
++        break;
++      case 'a':
++        if(authority) {
++          result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_AUTHORITY),
++                                   authority, strlen(authority));
++        }
++        break;
++      case 's':
++        if(scheme) {
++          result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_SCHEME),
++                                   scheme, strlen(scheme));
++        }
++        break;
++      case 'p':
++        if(req->path) {
++          result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_PATH),
++                                   req->path, strlen(req->path));
++        }
++        break;
++    }
++   }
+   for(i = 0; !result && i < Curl_dynhds_count(&req->headers); ++i) {
+     e = Curl_dynhds_getn(&req->headers, i);
+     if(!h2_non_field(e->name, e->namelen)) {
++     if(e->namelen == 2 && strcasecompare(e->name, "te"))
++        Curl_dynhds_set_opt(h2_headers, DYNHDS_OPT_LOWERCASE_VAL);
+       result = Curl_dynhds_add(h2_headers, e->name, e->namelen,
+                                e->value, e->valuelen);
++      Curl_dynhds_del_opt(h2_headers, DYNHDS_OPT_LOWERCASE_VAL);
+     }
+   }
+ 
 diff --git a/lib/http2.c b/lib/http2.c
-index c8b059498..dada3e543 100644
+index c8b059498..837679dd1 100644
 --- a/lib/http2.c
 +++ b/lib/http2.c
 @@ -69,7 +69,7 @@
@@ -74,7 +217,7 @@ index c8b059498..dada3e543 100644
  /* on receiving from TLS, we prep for holding a full stream window */
  #define H2_NW_RECV_CHUNKS       (H2_STREAM_WINDOW_SIZE / H2_CHUNK_SIZE)
  /* on send into TLS, we just want to accumulate small frames */
-@@ -87,24 +87,39 @@
+@@ -87,24 +87,66 @@
   * will block their received QUOTA in the connection window. And if we
   * run out of space, the server is blocked from sending us any data.
   * See #10988 for an issue with this. */
@@ -90,44 +233,207 @@ index c8b059498..dada3e543 100644
  {
 -  iv[0].settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS;
 -  iv[0].value = Curl_multi_max_concurrent_streams(data->multi);
-+    int i = 0;
-+    /* curl-impersonate: Align HTTP/2 settings to Chrome's */
-+    iv[i].settings_id = NGHTTP2_SETTINGS_HEADER_TABLE_SIZE;
-+    iv[i].value = 0x10000;
-+    i++;
- 
+-
 -  iv[1].settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE;
 -  iv[1].value = H2_STREAM_WINDOW_SIZE;
- 
+-
 -  iv[2].settings_id = NGHTTP2_SETTINGS_ENABLE_PUSH;
 -  iv[2].value = data->multi->push_cb != NULL;
-+    iv[i].settings_id = NGHTTP2_SETTINGS_ENABLE_PUSH;
-+    iv[i].value = 0;
-+    i++;
++  // TODO check if the http2 settings is valid
++  int i = 0;
++  char *delimiter = ";";
++
++  // Use chrome's settings as default
++  char *http2_settings = "1:65536;2:0;4:6291456;6:262144";
++  if(data->set.str[STRING_HTTP2_SETTINGS]) {
++    http2_settings = data->set.str[STRING_HTTP2_SETTINGS];
++  }
++  char *tmp = strdup(http2_settings);
++  char *setting = strtok(tmp, delimiter);
++   // loop through the string to extract all other tokens
++  while(setting != NULL) {
++    // deal with each setting
++    switch(setting[0]) {
++      case '1':
++        iv[i].settings_id = NGHTTP2_SETTINGS_HEADER_TABLE_SIZE;
++        iv[i].value = atoi(setting + 2);
++        i++;
++        break;
++      case '2':
++        iv[i].settings_id = NGHTTP2_SETTINGS_ENABLE_PUSH;
++        iv[i].value = atoi(setting + 2);
++        i++;
++        break;
++      case '3':
++        // FIXME We also need to notify curl_multi about this setting
++        iv[i].settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS;
++        iv[i].value = atoi(setting + 2);
++        i++;
++        break;
++      case '4':
++        iv[i].settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE;
++        iv[i].value = atoi(setting + 2);
++        i++;
++        break;
++      case '5':
++        iv[i].settings_id = NGHTTP2_SETTINGS_MAX_FRAME_SIZE;
++        iv[i].value = atoi(setting + 2);
++        i++;
++        break;
++      case '6':
++        iv[i].settings_id = NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE;
++        iv[i].value = atoi(setting + 2);
++        i++;
++        break;
++    }
++    setting = strtok(NULL, delimiter);
++  }
++  free(tmp);
  
 -  return 3;
-+
-+    /*iv[i].settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS;
-+    iv[i].value = Curl_multi_max_concurrent_streams(data->multi);
-+    i++;*/
-+
-+    iv[i].settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE;
-+    iv[i].value = 0x600000;
-+    i++;
-+
-+    iv[i].settings_id = NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE;
-+    iv[i].value = 0x40000;
-+    i++;
-+
 +  return i;
  }
  
  static size_t populate_binsettings(uint8_t *binsettings,
-@@ -1750,11 +1765,13 @@ out:
+@@ -137,6 +179,102 @@ struct cf_h2_ctx {
+   BIT(enable_push);
+   BIT(nw_out_blocked);
+ };
++static CURLcode http2_set_stream_priority(struct Curl_cfilter* cf,
++    struct Curl_easy* data,
++    int32_t stream_id,
++    int32_t dep_stream_id,
++    int32_t weight,
++    int exclusive
++)
++{
++    int rv;
++    struct cf_h2_ctx* ctx = cf->ctx;
++    nghttp2_priority_spec pri_spec;
++
++    nghttp2_priority_spec_init(&pri_spec, dep_stream_id, weight, exclusive);
++    rv = nghttp2_submit_priority(ctx->h2, NGHTTP2_FLAG_NONE,
++        stream_id, &pri_spec);
++    if (rv) {
++        failf(data, "nghttp2_submit_priority() failed: %s(%d)",
++            nghttp2_strerror(rv), rv);
++        return CURLE_HTTP2;
++    }
++
++    return CURLE_OK;
++}
++
++#if defined(_WIN32) || defined(_WIN64)
++char *strtok_r(char *str, const char *delim, char **saveptr) {
++    char *token;
++
++    // 濡傛灉 str 涓?NULL锛屽垯浣跨敤淇濆瓨鐨勪笂涓嬫枃鎸囬拡
++    if (str == NULL) {
++        str = *saveptr;
++    }
++
++    // 璺宠繃鍒嗛殧绗?+    str += strspn(str, delim);
++    if (*str == '\0') {
++        // 娌℃湁鏇村鐨勫垎鍓查儴鍒嗭紝杩斿洖 NULL
++        return NULL;
++    }
++
++    // 浠?token 鎸囧悜褰撳墠 token 鐨勮捣濮嬩綅缃?+    token = str;
++
++    // 鎵惧埌涓嬩竴涓垎闅旂鐨勪綅缃?+    str = strpbrk(token, delim);
++    if (str == NULL) {
++        // 娌℃湁鏇村鐨勫垎闅旂锛屼繚瀛樹笂涓嬫枃涓哄瓧绗︿覆缁撳熬
++        *saveptr = strchr(token, '\0');
++    } else {
++        // 鐢?NULL 缁堟褰撳墠 token锛屽苟淇濆瓨涓婁笅鏂囦负涓嬩竴涓儴鍒嗙殑璧峰浣嶇疆
++        *str = '\0';
++        *saveptr = str + 1;
++    }
++
++    return token;
++}
++#endif
++
++static CURLcode http2_set_stream_priorities(struct Curl_cfilter* cf,
++    struct Curl_easy* data)
++{
++    CURLcode result;
++    char* stream_delimiter = ",";
++    char* value_delimiter = ":";
++
++    if (!data->set.str[STRING_HTTP2_STREAMS])
++        return CURLE_OK;
++
++    char* tmp1 = strdup(data->set.str[STRING_HTTP2_STREAMS]);
++    char* end1;
++    char* stream = strtok_r(tmp1, stream_delimiter, &end1);
++
++    while (stream != NULL) {
++
++        char* tmp2 = strdup(stream);
++        char* end2;
++
++        int32_t stream_id = atoi(strtok_r(tmp2, value_delimiter, &end2));
++        int exclusive = atoi(strtok_r(NULL, value_delimiter, &end2));
++        int32_t dep_stream_id = atoi(strtok_r(NULL, value_delimiter, &end2));
++        int32_t weight = atoi(strtok_r(NULL, value_delimiter, &end2));
++
++        free(tmp2);
++
++        result = http2_set_stream_priority(cf, data, stream_id, dep_stream_id, weight, exclusive);
++        if (result) {
++            free(tmp1);
++            return result;
++        }
++
++        stream = strtok_r(NULL, stream_delimiter, &end1);
++    }
++
++    free(tmp1);
++    return CURLE_OK;
++}
+ 
+ /* How to access `call_data` from a cf_h2 filter */
+ #undef CF_CTX_CALL_DATA
+@@ -496,15 +634,28 @@ static CURLcode cf_h2_ctx_init(struct Curl_cfilter *cf,
+     }
+   }
+ 
+-  rc = nghttp2_session_set_local_window_size(ctx->h2, NGHTTP2_FLAG_NONE, 0,
+-                                             HTTP2_HUGE_WINDOW_SIZE);
++  int current_window_size = nghttp2_session_get_local_window_size(ctx->h2);
++
++  // Use chrome's value as default
++  int window_update = 15663105;
++  if(data->set.http2_window_update) {
++    window_update = data->set.http2_window_update;
++  }
++
++  // printf("Using window update %d\n", window_update);
++
++  rc = nghttp2_session_set_local_window_size(
++      ctx->h2, NGHTTP2_FLAG_NONE, 0,
++        current_window_size + window_update);
+   if(rc) {
+     failf(data, "nghttp2_session_set_local_window_size() failed: %s(%d)",
+           nghttp2_strerror(rc), rc);
+     result = CURLE_HTTP2;
+     goto out;
+   }
+-
++  result = http2_set_stream_priorities(cf, data);
++  if(result)
++    goto out;
+   /* all set, traffic will be send on connect */
+   result = CURLE_OK;
+   CURL_TRC_CF(data, cf, "[0] created h2 session%s",
+@@ -1750,11 +1901,15 @@ out:
    return rv;
  }
  
 +#define CHROME_DEFAULT_STREAM_WEIGHT    (256)
++#define SAFARI_DEFAULT_STREAM_WEIGHT    (255)
++#define FIREFOX_DEFAULT_STREAM_WEIGHT   (42)
 +
  static int sweight_wanted(const struct Curl_easy *data)
  {
@@ -138,7 +444,7 @@ index c8b059498..dada3e543 100644
  }
  
  static int sweight_in_effect(const struct Curl_easy *data)
-@@ -1778,7 +1795,7 @@ static void h2_pri_spec(struct Curl_easy *data,
+@@ -1778,7 +1933,7 @@ static void h2_pri_spec(struct Curl_easy *data,
    int32_t depstream_id = depstream? depstream->id:0;
    nghttp2_priority_spec_init(pri_spec, depstream_id,
                               sweight_wanted(data),
@@ -147,7 +453,7 @@ index c8b059498..dada3e543 100644
    data->state.priority = *prio;
  }
  
-@@ -1797,18 +1814,21 @@ static CURLcode h2_progress_egress(struct Curl_cfilter *cf,
+@@ -1797,18 +1952,21 @@ static CURLcode h2_progress_egress(struct Curl_cfilter *cf,
  
    if(stream && stream->id > 0 &&
       ((sweight_wanted(data) != sweight_in_effect(data)) ||
@@ -178,10 +484,10 @@ index c8b059498..dada3e543 100644
  
    ctx->nw_out_blocked = 0;
 diff --git a/lib/setopt.c b/lib/setopt.c
-index 0d399adfe..887a25057 100644
+index 0d399adfe..b1e783ea6 100644
 --- a/lib/setopt.c
 +++ b/lib/setopt.c
-@@ -3170,6 +3170,10 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
+@@ -3170,6 +3170,31 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
    case CURLOPT_QUICK_EXIT:
      data->set.quick_exit = (0 != va_arg(param, long)) ? 1L:0L;
      break;
@@ -189,6 +495,27 @@ index 0d399adfe..887a25057 100644
 +      result = Curl_setstropt(&data->set.str[STRING_TLS_EXTENSION_PERMUTATION],
 +          va_arg(param, char*));
 +      break;
++#ifdef USE_HTTP2
++  case CURLOPT_HTTP2_PSEUDO_HEADERS_ORDER:
++    result = Curl_setstropt(&data->set.str[STRING_HTTP2_PSEUDO_HEADERS_ORDER],
++                          va_arg(param, char *));
++  break;
++  case CURLOPT_HTTP2_SETTINGS:
++    result = Curl_setstropt(&data->set.str[STRING_HTTP2_SETTINGS],
++                            va_arg(param, char *));
++    break;
++  case CURLOPT_HTTP2_WINDOW_UPDATE:
++    arg = va_arg(param, long);
++    if(arg < -1)
++      return CURLE_BAD_FUNCTION_ARGUMENT;
++    data->set.http2_window_update = arg;
++    break;
++  case CURLOPT_HTTP2_STREAMS:
++    result = Curl_setstropt(&data->set.str[STRING_HTTP2_STREAMS],
++                            va_arg(param, char *));
++    break;
++
++#endif
    default:
      /* unknown tag and its companion, just ignore: */
      result = CURLE_UNKNOWN_OPTION;
@@ -205,7 +532,7 @@ index 61dad442d..166cc6f8a 100644
      data->set.str[STRING_SSL_PINNEDPUBLICKEY];
    data->set.ssl.primary.cert_blob = data->set.blobs[BLOB_CERT];
 diff --git a/lib/urldata.h b/lib/urldata.h
-index dff26e6b4..64db088e0 100644
+index dff26e6b4..ae2bdf94a 100644
 --- a/lib/urldata.h
 +++ b/lib/urldata.h
 @@ -273,6 +273,7 @@ struct ssl_primary_config {
@@ -216,7 +543,18 @@ index dff26e6b4..64db088e0 100644
    char *pinned_key;
    char *CRLfile;         /* CRL to check certificate revocation */
    struct curl_blob *cert_blob;
-@@ -1608,7 +1609,7 @@ enum dupstring {
+@@ -1600,7 +1601,9 @@ enum dupstring {
+   STRING_SSL_EC_CURVES,
+   STRING_AWS_SIGV4, /* Parameters for V4 signature */
+   STRING_HAPROXY_CLIENT_IP,     /* CURLOPT_HAPROXY_CLIENT_IP */
+-
++  STRING_HTTP2_PSEUDO_HEADERS_ORDER,
++  STRING_HTTP2_SETTINGS,
++  STRING_HTTP2_STREAMS,
+   /* -- end of null-terminated strings -- */
+ 
+   STRING_LASTZEROTERMINATED,
+@@ -1608,7 +1611,7 @@ enum dupstring {
    /* -- below this are pointers to binary data that cannot be strdup'ed. --- */
  
    STRING_COPYPOSTFIELDS,  /* if POST, set the fields' values here */
@@ -225,6 +563,14 @@ index dff26e6b4..64db088e0 100644
    STRING_LAST /* not used, just an end-of-list marker */
  };
  
+@@ -1920,6 +1923,7 @@ struct UserDefined {
+ #ifdef USE_WEBSOCKETS
+   BIT(ws_raw_mode);
+ #endif
++  int http2_window_update;
+ };
+ 
+ struct Names {
 diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
 index 9f9c8d136..8ec355834 100644
 --- a/lib/vtls/openssl.c
