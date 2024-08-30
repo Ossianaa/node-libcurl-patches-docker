@@ -1,6 +1,6 @@
 ## libcurl module patches
 
-> Some of the patch reference [curl-impersonate](https://github.com/lwthiker/curl-impersonate)
+> Some of the patch reference [curl-impersonate](https://github.com/lwthiker/curl-impersonate) [curl-impersonate](https://github.com/lexiforest/curl-impersonate)
 
 ## module version
 |      module       | version |
