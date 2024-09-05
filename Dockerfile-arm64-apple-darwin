@@ -92,7 +92,7 @@ RUN curl -L https://github.com/c-ares/c-ares/archive/${CARES_COMMIT}.tar.gz -o c
 
 RUN cd cares-${CARES_COMMIT} && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DCARES_STATIC=1 -DCARES_SHARED=0 -DCARES_STATIC_PIC=1 -DCARES_BUILD_TOOLS=0 .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DCARES_STATIC=1 -DCARES_SHARED=0 -DCARES_STATIC_PIC=1 -DCARES_BUILD_TOOLS=0 -DCMAKE_SYSTEM_NAME="Darwin" .. && \
     cmake --build . --config Release --target install
 
 RUN curl -L -k https://github.com/google/boringssl/archive/${BORINGSSL_COMMIT}.tar.gz -o boringssl-${BORINGSSL_COMMIT}.tar.gz && \
