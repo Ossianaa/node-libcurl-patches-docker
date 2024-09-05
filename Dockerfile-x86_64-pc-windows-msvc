@@ -3,6 +3,7 @@ FROM ubuntu:20.04 as stage1
 ARG CURL_COMMIT=d755a5f7c009dd63a61b2c745180d8ba937cbfeb
 ARG BORINGSSL_COMMIT=23824fa0fed94f4660ffafb15aaea8b317f2c8a6
 ARG NGHTTP2_COMMIT=05b792901933664e7aeb7ebb8c87db81123d484a
+ARG CARES_COMMIT=27b98d96eff6122fb981e338bddef3d6a57d8d44
 ARG ZLIB_COMMIT=04f42ceca40f73e2978b50e93806c2a18c1281fc
 ARG ZSTD_COMMIT=a58b48ef0e543980888a4d9d16c9072ff22135ca
 ARG BROTLI_COMMIT=71fe6cac061ac62c0241f410fbd43a04a6b4f303
@@ -27,6 +28,10 @@ RUN curl -L https://github.com/madler/zlib/archive/${ZLIB_COMMIT}.tar.gz -o zlib
 RUN curl -L https://github.com/nghttp2/nghttp2/archive/${NGHTTP2_COMMIT}.tar.gz -o nghttp2-${NGHTTP2_COMMIT}.tar.gz && \
     tar -xf nghttp2-${NGHTTP2_COMMIT}.tar.gz
 
+RUN curl -L https://github.com/c-ares/c-ares/archive/${CARES_COMMIT}.tar.gz -o cares-${CARES_COMMIT}.tar.gz && \
+    tar -xf cares-${CARES_COMMIT}.tar.gz && \
+    mv c-ares-${CARES_COMMIT} cares-${CARES_COMMIT}
+
 RUN curl -L https://github.com/google/boringssl/archive/${BORINGSSL_COMMIT}.tar.gz -o boringssl-${BORINGSSL_COMMIT}.tar.gz && \
     tar -xf boringssl-${BORINGSSL_COMMIT}.tar.gz
 
@@ -45,6 +50,7 @@ RUN cd curl-${CURL_COMMIT} && \
 
 RUN mv boringssl-${BORINGSSL_COMMIT} boringssl && \
     mv nghttp2-${NGHTTP2_COMMIT} nghttp2 && \
+    mv cares-${CARES_COMMIT} cares && \
     mv brotli-${BROTLI_COMMIT} brotli && \
     mv zlib-${ZLIB_COMMIT} zlib && \
     mv zstd-${ZSTD_COMMIT} zstd && \
@@ -76,6 +82,11 @@ RUN echo "cd C:/brotli && del build && \
     cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed .. && \
     cmake --build . --config Release --target install &&\
     \
+    cd C:/cares && del build && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DCARES_STATIC=1 -DCARES_SHARED=0 -DCARES_STATIC_PIC=1 -DCARES_BUILD_TOOLS=0 .. && \
+    cmake --build . --config Release --target install &&\
+    \
     cd C:/nghttp2 && del build && \
     mkdir build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 .. && \
@@ -99,6 +110,9 @@ RUN echo "cd C:/brotli && del build && \
       -DOPENSSL_ROOT_DIR=C:/boringssl/build/ \
       -DZLIB_INCLUDE_DIR=C:/zlib/build/installed/include \
       -DZLIB_LIBRARY=C:/zlib/build/installed/lib/zlibstatic.lib \
+      -DENABLE_ARES=1 \
+      -DCARES_INCLUDE_DIR=/cares/build/installed/include \
+      -DCARES_LIBRARY=/cares/build/installed/lib/cares.lib \
       -DUSE_NGHTTP2=1 \
       -DNGHTTP2_INCLUDE_DIR=C:/nghttp2/build/installed/include \
       -DNGHTTP2_LIBRARY=C:/nghttp2/build/installed/lib/nghttp2.lib \
