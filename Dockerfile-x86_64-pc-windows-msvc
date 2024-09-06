@@ -127,7 +127,7 @@ RUN echo "cd C:/brotli && del build && \
       -DBUILD_CURL_EXE=0 \
       -DCMAKE_POSITION_INDEPENDENT_CODE=1 \
       -DCMAKE_C_FLAGS="-DNGHTTP2_STATICLIB=1" \
-      -DCMAKE_CXX_STANDARD_LIBRARIES="-liphlpapi.lib" \
+      -DCMAKE_CXX_STANDARD_LIBRARIES="iphlpapi" \
       .. && \
     ninja libcurl_shared && \
     \
