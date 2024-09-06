@@ -9,6 +9,7 @@
 |  boringssl  | [23824fa0fed94f4660ffafb15aaea8b317f2c8a6](https://github.com/google/boringssl/blob/23824fa0fed94f4660ffafb15aaea8b317f2c8a6)  |
 |  nghttp2  | [05b792901933664e7aeb7ebb8c87db81123d484a](https://github.com/nghttp2/nghttp2/tree/05b792901933664e7aeb7ebb8c87db81123d484a)  |
 |  c-ares  | [2aa086f822aad5017a6f2061ef656f237a62d0ed](https://github.com/c-ares/c-ares/tree/2aa086f822aad5017a6f2061ef656f237a62d0ed)  |
+|  c-ares(Windows)  | [27b98d96eff6122fb981e338bddef3d6a57d8d44](https://github.com/c-ares/c-ares/tree/27b98d96eff6122fb981e338bddef3d6a57d8d44)  |
 | zlib | [04f42ceca40f73e2978b50e93806c2a18c1281fc](https://github.com/madler/zlib/tree/04f42ceca40f73e2978b50e93806c2a18c1281fc) |
 | zstd  | [a58b48ef0e543980888a4d9d16c9072ff22135ca](https://github.com/facebook/zstd/tree/a58b48ef0e543980888a4d9d16c9072ff22135ca) |
 |  brotli  | [71fe6cac061ac62c0241f410fbd43a04a6b4f303](https://github.com/google/brotli/tree/71fe6cac061ac62c0241f410fbd43a04a6b4f303)  |
