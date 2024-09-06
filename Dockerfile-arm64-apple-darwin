@@ -155,6 +155,7 @@ RUN cd curl-${CURL_COMMIT} && \
 RUN mkdir dist && \
     cp /curl-${CURL_COMMIT}/build/installed/lib/libcurl.a /dist && \
     cp /zstd-${ZSTD_COMMIT}/build/installed/lib/libzstd.a /dist && \
+    cp /cares-${cares_COMMIT}/build/installed/lib/libcares.a /dist && \
     cp /boringssl-${BORINGSSL_COMMIT}/build/lib/libcrypto.a /dist && \
     cp /boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a /dist
 
