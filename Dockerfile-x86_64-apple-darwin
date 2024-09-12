@@ -37,7 +37,6 @@ RUN apt-get update && \
 	env TARGET_DIR=/usr/local/osxcross UNATTENDED=1 ./build.sh && ./build_compiler_rt.sh && \
     cd / && \
     rm -rf osxcross
-COPY profile-x86_64-apple-darwin.ini /profile.ini
 ENV CXX "x86_64-apple-darwin20.4-clang++"
 ENV CC "x86_64-apple-darwin20.4-clang"
 ENV CROSSBUILD "x86_64-apple-darwin"
