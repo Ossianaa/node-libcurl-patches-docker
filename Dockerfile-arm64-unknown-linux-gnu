@@ -67,15 +67,6 @@ RUN cd nghttp2-${NGHTTP2_COMMIT} && \
     cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 .. && \
     cmake --build . --config Release --target install
 
-RUN curl -L https://github.com/c-ares/c-ares/archive/${CARES_COMMIT}.tar.gz -o cares-${CARES_COMMIT}.tar.gz && \
-    tar -xf cares-${CARES_COMMIT}.tar.gz && \
-    mv c-ares-${CARES_COMMIT} cares-${CARES_COMMIT}
-
-RUN cd cares-${CARES_COMMIT} && \
-    mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DCARES_STATIC=1 -DCARES_SHARED=0 -DCARES_STATIC_PIC=1 -DCARES_BUILD_TOOLS=0 .. && \
-    cmake --build . --config Release --target install
-    
 RUN curl -L https://github.com/google/boringssl/archive/${BORINGSSL_COMMIT}.tar.gz -o boringssl-${BORINGSSL_COMMIT}.tar.gz && \
     tar -xf boringssl-${BORINGSSL_COMMIT}.tar.gz
 
@@ -110,9 +101,6 @@ RUN cd curl-${CURL_COMMIT} && \
       -DOPENSSL_ROOT_DIR=/boringssl-${BORINGSSL_COMMIT}/build/ \
       -DZLIB_INCLUDE_DIR=/zlib-${ZLIB_COMMIT}/build/installed/include \
       -DZLIB_LIBRARY=/zlib-${ZLIB_COMMIT}/build/installed/lib/libz.a \
-      -DENABLE_ARES=1 \
-      -DCARES_INCLUDE_DIR=/cares-${CARES_COMMIT}/build/installed/include \
-      -DCARES_LIBRARY=/cares-${CARES_COMMIT}/build/installed/lib/libcares.a \
       -DUSE_NGHTTP2=1 \
       -DNGHTTP2_INCLUDE_DIR=/nghttp2-${NGHTTP2_COMMIT}/build/installed/include \
       -DNGHTTP2_LIBRARY=/nghttp2-${NGHTTP2_COMMIT}/build/installed/lib/libnghttp2.a \
@@ -133,7 +121,6 @@ RUN cd curl-${CURL_COMMIT} && \
 RUN mkdir dist && \
     cp /curl-${CURL_COMMIT}/build/installed/lib/libcurl.a /dist && \
     cp /zstd-${ZSTD_COMMIT}/build/installed/lib/libzstd.a /dist && \
-    cp /cares-${CARES_COMMIT}/build/installed/lib/libcares.a /dist && \
     cp /boringssl-${BORINGSSL_COMMIT}/build/lib/libcrypto.a /dist && \
     cp /boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a /dist
 
