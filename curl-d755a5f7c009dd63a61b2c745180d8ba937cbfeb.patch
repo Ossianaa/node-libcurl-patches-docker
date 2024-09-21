@@ -1,8 +1,8 @@
 diff --git a/include/curl/curl.h b/include/curl/curl.h
-index bf71d82fb..11b6f867b 100644
+index bf71d82fb..46c92f380 100644
 --- a/include/curl/curl.h
 +++ b/include/curl/curl.h
-@@ -2209,7 +2209,12 @@ typedef enum {
+@@ -2209,7 +2209,13 @@ typedef enum {
  
    /* set a specific client IP for HAProxy PROXY protocol header? */
    CURLOPT(CURLOPT_HAPROXY_CLIENT_IP, CURLOPTTYPE_STRINGPOINT, 323),
@@ -13,6 +13,7 @@ index bf71d82fb..11b6f867b 100644
 +  CURLOPT(CURLOPT_HTTP2_SETTINGS, CURLOPTTYPE_STRINGPOINT, 326),
 +  CURLOPT(CURLOPT_HTTP2_WINDOW_UPDATE, CURLOPTTYPE_LONG, 327),
 +  CURLOPT(CURLOPT_HTTP2_STREAMS, CURLOPTTYPE_STRINGPOINT, 328),
++  CURLOPT(CURLOPT_HTTP2_STREAM_ID, CURLOPTTYPE_LONG, 329),
    CURLOPT_LASTENTRY /* the last unused */
  } CURLoption;
  
@@ -85,10 +86,10 @@ index 8a053480e..f9f38e8b1 100644
   * Return the n-th header entry or NULL if it does not exist.
   */
 diff --git a/lib/easyoptions.c b/lib/easyoptions.c
-index e69c658b0..6f28d2ee7 100644
+index e69c658b0..e26d55e62 100644
 --- a/lib/easyoptions.c
 +++ b/lib/easyoptions.c
-@@ -133,6 +133,10 @@ struct curl_easyoption Curl_easyopts[] = {
+@@ -133,6 +133,11 @@ struct curl_easyoption Curl_easyopts[] = {
    {"HSTS_CTRL", CURLOPT_HSTS_CTRL, CURLOT_LONG, 0},
    {"HTTP09_ALLOWED", CURLOPT_HTTP09_ALLOWED, CURLOT_LONG, 0},
    {"HTTP200ALIASES", CURLOPT_HTTP200ALIASES, CURLOT_SLIST, 0},
@@ -96,15 +97,16 @@ index e69c658b0..6f28d2ee7 100644
 +  {"HTTP2_SETTINGS", CURLOPT_HTTP2_SETTINGS, CURLOT_STRING, 0},
 +  {"HTTP2_STREAMS", CURLOPT_HTTP2_STREAMS, CURLOT_STRING, 0},
 +  {"HTTP2_WINDOW_UPDATE", CURLOPT_HTTP2_WINDOW_UPDATE, CURLOT_LONG, 0},
++  {"HTTP2_STREAM_ID", CURLOPT_HTTP2_STREAM_ID, CURLOT_LONG, 0},
    {"HTTPAUTH", CURLOPT_HTTPAUTH, CURLOT_VALUES, 0},
    {"HTTPGET", CURLOPT_HTTPGET, CURLOT_LONG, 0},
    {"HTTPHEADER", CURLOPT_HTTPHEADER, CURLOT_SLIST, 0},
-@@ -373,6 +377,6 @@ struct curl_easyoption Curl_easyopts[] = {
+@@ -373,6 +378,6 @@ struct curl_easyoption Curl_easyopts[] = {
   */
  int Curl_easyopts_check(void)
  {
 -  return ((CURLOPT_LASTENTRY%10000) != (323 + 1));
-+  return ((CURLOPT_LASTENTRY%10000) != (328 + 1));
++  return ((CURLOPT_LASTENTRY%10000) != (329 + 1));
  }
  #endif
 diff --git a/lib/http.c b/lib/http.c
@@ -205,7 +207,7 @@ index 40ef70df5..ffcc9068b 100644
    }
  
 diff --git a/lib/http2.c b/lib/http2.c
-index c8b059498..68d702546 100644
+index c8b059498..3583efbb0 100644
 --- a/lib/http2.c
 +++ b/lib/http2.c
 @@ -69,7 +69,7 @@
@@ -467,7 +469,7 @@ index c8b059498..68d702546 100644
 -                                 stream->id, &pri_spec);
 -    if(rv)
 -      goto out;
-+    if(stream->id != 1) {
++    if(stream->id != 1 && stream->id != data->set.http2_stream_id) {
 +      DEBUGF(LOG_CF(data, cf, "[h2sid=%d] Queuing PRIORITY",
 +                    stream->id));
 +      DEBUGASSERT(stream->id != -1);
@@ -479,11 +481,27 @@ index c8b059498..68d702546 100644
    }
  
    ctx->nw_out_blocked = 0;
+@@ -2073,6 +2224,15 @@ static ssize_t h2_submit(struct stream_ctx **pstream,
+   if(!nghttp2_session_check_request_allowed(ctx->h2))
+     CURL_TRC_CF(data, cf, "send request NOT allowed (via nghttp2)");
+ 
++  if (data->set.http2_stream_id != 0 && cf->next) {
++      int status = nghttp2_session_set_next_stream_id(ctx->h2, data->set.http2_stream_id);
++      if (status != 0)
++      {
++          CURL_TRC_CF(data, cf, "nghttp2_session_set_next_stream_id error %d (via nghttp2)", status);
++          nwritten = -1;
++          goto out;
++      }
++  };
+   switch(data->state.httpreq) {
+   case HTTPREQ_POST:
+   case HTTPREQ_POST_FORM:
 diff --git a/lib/setopt.c b/lib/setopt.c
-index 0d399adfe..b1e783ea6 100644
+index 0d399adfe..fd06235bb 100644
 --- a/lib/setopt.c
 +++ b/lib/setopt.c
-@@ -3170,6 +3170,31 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
+@@ -3170,6 +3170,37 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
    case CURLOPT_QUICK_EXIT:
      data->set.quick_exit = (0 != va_arg(param, long)) ? 1L:0L;
      break;
@@ -510,6 +528,12 @@ index 0d399adfe..b1e783ea6 100644
 +    result = Curl_setstropt(&data->set.str[STRING_HTTP2_STREAMS],
 +                            va_arg(param, char *));
 +    break;
++  case CURLOPT_HTTP2_STREAM_ID:
++    arg = va_arg(param, long);
++    if(arg < -1)
++      return CURLE_BAD_FUNCTION_ARGUMENT;
++    data->set.http2_stream_id = arg;
++    break;
 +
 +#endif
    default:
@@ -528,7 +552,7 @@ index 61dad442d..166cc6f8a 100644
      data->set.str[STRING_SSL_PINNEDPUBLICKEY];
    data->set.ssl.primary.cert_blob = data->set.blobs[BLOB_CERT];
 diff --git a/lib/urldata.h b/lib/urldata.h
-index dff26e6b4..ae2bdf94a 100644
+index dff26e6b4..9f88e5638 100644
 --- a/lib/urldata.h
 +++ b/lib/urldata.h
 @@ -273,6 +273,7 @@ struct ssl_primary_config {
@@ -559,11 +583,12 @@ index dff26e6b4..ae2bdf94a 100644
    STRING_LAST /* not used, just an end-of-list marker */
  };
  
-@@ -1920,6 +1923,7 @@ struct UserDefined {
+@@ -1920,6 +1923,8 @@ struct UserDefined {
  #ifdef USE_WEBSOCKETS
    BIT(ws_raw_mode);
  #endif
 +  int http2_window_update;
++  int http2_stream_id;
  };
  
  struct Names {
