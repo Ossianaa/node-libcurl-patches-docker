@@ -11,6 +11,7 @@
 | zlib | [04f42ceca40f73e2978b50e93806c2a18c1281fc](https://github.com/madler/zlib/tree/04f42ceca40f73e2978b50e93806c2a18c1281fc) |
 | zstd  | [a58b48ef0e543980888a4d9d16c9072ff22135ca](https://github.com/facebook/zstd/tree/a58b48ef0e543980888a4d9d16c9072ff22135ca) |
 |  brotli  | [71fe6cac061ac62c0241f410fbd43a04a6b4f303](https://github.com/google/brotli/tree/71fe6cac061ac62c0241f410fbd43a04a6b4f303)  |
+|  quiche  | [4ff56ec2566622980bbb0e0d7b9217254d97c4ba](https://github.com/cloudflare/quiche/tree/4ff56ec2566622980bbb0e0d7b9217254d97c4ba)  |
 ------------
 
 ## docker build

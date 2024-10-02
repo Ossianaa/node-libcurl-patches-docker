@@ -6,6 +6,7 @@ ARG NGHTTP2_COMMIT=05b792901933664e7aeb7ebb8c87db81123d484a
 ARG ZLIB_COMMIT=04f42ceca40f73e2978b50e93806c2a18c1281fc
 ARG ZSTD_COMMIT=a58b48ef0e543980888a4d9d16c9072ff22135ca
 ARG BROTLI_COMMIT=71fe6cac061ac62c0241f410fbd43a04a6b4f303
+ARG QUIC_COMMIT=4ff56ec2566622980bbb0e0d7b9217254d97c4ba
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
@@ -65,6 +66,20 @@ RUN mkdir boringssl-${BORINGSSL_COMMIT}/build/lib && \
     ln -s ../ssl/libssl.a boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a && \
     cp -R boringssl-${BORINGSSL_COMMIT}/include boringssl-${BORINGSSL_COMMIT}/build
 
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+RUN curl -L https://github.com/cloudflare/quiche/archive/${QUIC_COMMIT}.tar.gz -o quiche-${QUIC_COMMIT}.tar.gz && \
+    tar -xf quiche-${QUIC_COMMIT}.tar.gz
+
+RUN cd quiche-${QUIC_COMMIT} && \
+    $HOME/.cargo/bin/cargo build --package quiche --release --features ffi,pkg-config-meta,qlog --no-default-features
+
+RUN cd quiche-${QUIC_COMMIT} && \
+    mkdir -p ./build/installed/lib && \
+    mkdir -p ./build/installed/include && \
+    cp ./target/release/libquiche.a ./build/installed/lib/libquiche.a && \
+    cp ./quiche/include/quiche.h ./build/installed/include/quiche.h
+
 RUN curl -L https://github.com/curl/curl/archive/${CURL_COMMIT}.tar.gz -o curl-${CURL_COMMIT}.tar.gz && \
     tar -xf curl-${CURL_COMMIT}.tar.gz
 
@@ -84,6 +99,9 @@ RUN cd curl-${CURL_COMMIT} && \
       -DUSE_NGHTTP2=1 \
       -DNGHTTP2_INCLUDE_DIR=/nghttp2-${NGHTTP2_COMMIT}/build/installed/include \
       -DNGHTTP2_LIBRARY=/nghttp2-${NGHTTP2_COMMIT}/build/installed/lib/libnghttp2.a \
+      -DUSE_QUICHE=1 \
+      -DQUICHE_INCLUDE_DIR=/quiche-${QUIC_COMMIT}/build/installed/include \
+      -DQUICHE_LIBRARY=/quiche-${QUIC_COMMIT}/build/installed/lib/libquiche.a \
       -DCURL_ZSTD=1 \
       -DZstd_INCLUDE_DIR=/zstd-${ZSTD_COMMIT}/build/installed/include \
       -DZstd_LIBRARY=/zstd-${ZSTD_COMMIT}/build/installed/lib/libzstd.a \
