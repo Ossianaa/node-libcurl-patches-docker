@@ -119,7 +119,6 @@ RUN echo "cd C:/brotli && del build && \
       -DBUILD_CURL_EXE=0 \
       -DCMAKE_POSITION_INDEPENDENT_CODE=1 \
       -DCMAKE_C_FLAGS="-DNGHTTP2_STATICLIB=1" \
-      -DCMAKE_SHARED_LINKER_FLAGS="-lntdll -lUserenv" \
       .. && \
     ninja libcurl_shared && \
     \
