@@ -34,6 +34,8 @@ ARG BROTLI_COMMIT=71fe6cac061ac62c0241f410fbd43a04a6b4f303
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
+COPY quiche quiche
+
 RUN curl -L https://github.com/google/brotli/archive/${BROTLI_COMMIT}.tar.gz -o brotli-${BROTLI_COMMIT}.tar.gz && \
     tar -xf brotli-${BROTLI_COMMIT}.tar.gz
 

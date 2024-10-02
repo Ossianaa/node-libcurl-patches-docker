@@ -113,7 +113,7 @@ jobs:
         shell: bash
 
       - name: Build the Docker image
-        run: docker build . -f Dockerfile-x86_64-unknown-linux-gnu -t curl_x86_64-unknown-linux-gnu -v ${{ github.workspace }}/quiche-x86_64-unknown-linux-gnu:/quiche
+        run: docker build . -f Dockerfile-x86_64-unknown-linux-gnu -t curl_x86_64-unknown-linux-gnu
 
       - name: Run the Docker container
         run: docker run --rm -v ./output:/output curl_x86_64-unknown-linux-gnu
@@ -151,7 +151,7 @@ jobs:
         shell: bash
 
       - name: Build the Docker image
-        run: docker build . -f Dockerfile-arm64-unknown-linux-gnu -t curl_arm64-unknown-linux-gnu -v ${{ github.workspace }}/quiche-x86_64-unknown-linux-gnu:/quiche
+        run: docker build . -f Dockerfile-arm64-unknown-linux-gnu -t curl_arm64-unknown-linux-gnu
 
       - name: Run the Docker container
         run: docker run --rm -v ./output:/output curl_arm64-unknown-linux-gnu
@@ -188,7 +188,7 @@ jobs:
           cp ./quiche.h ./quiche-x86_64-pc-windows-msvc
         shell: bash
       - name: Build the Docker image
-        run: docker build . -f Dockerfile-x86_64-pc-windows-msvc -t curl_x86_64-pc-windows-msvc -v ${{ github.workspace }}/quiche-x86_64-pc-windows-msvc:/quiche
+        run: docker build . -f Dockerfile-x86_64-pc-windows-msvc -t curl_x86_64-pc-windows-msvc
 
       - name: Run the Docker container
         run: docker run --name win_docker curl_x86_64-pc-windows-msvc
@@ -231,7 +231,7 @@ jobs:
           cp ./quiche.h ./quiche-x86_64-apple-darwin
         shell: bash
       - name: Build the Docker image
-        run: docker build . -f Dockerfile-x86_64-apple-darwin -t curl_x86_64-apple-darwin -v ${{ github.workspace }}/quiche-x86_64-apple-darwin:/quiche
+        run: docker build . -f Dockerfile-x86_64-apple-darwin -t curl_x86_64-apple-darwin
 
       - name: Run the Docker container
         run: docker run --rm -v ./output:/output curl_x86_64-apple-darwin
@@ -269,7 +269,7 @@ jobs:
           shell: bash
           
         - name: Build the Docker image
-          run: docker build . -f Dockerfile-arm64-apple-darwin -t curl_arm64-apple-darwin -v ${{ github.workspace }}/quiche-aarch64-apple-darwin:/quiche
+          run: docker build . -f Dockerfile-arm64-apple-darwin -t curl_arm64-apple-darwin
 
         - name: Run the Docker container
           run: docker run --rm -v ./output:/output curl_arm64-apple-darwin
