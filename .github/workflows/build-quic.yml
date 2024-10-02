@@ -84,6 +84,5 @@ jobs:
         with:
           name: quiche-${{ matrix.settings.target }}
           path: |
-            /quiche/target/release/*.a
-            /quiche/target/release/*.lib
+            /quiche/target/release/*
           if-no-files-found: error
