@@ -84,6 +84,9 @@ RUN cd curl-${CURL_COMMIT} && \
       -DUSE_NGHTTP2=1 \
       -DNGHTTP2_INCLUDE_DIR=/nghttp2-${NGHTTP2_COMMIT}/build/installed/include \
       -DNGHTTP2_LIBRARY=/nghttp2-${NGHTTP2_COMMIT}/build/installed/lib/libnghttp2.a \
+      -DUSE_QUICHE=1 \
+      -DQUICHE_INCLUDE_DIR=/quiche \
+      -DQUICHE_LIBRARY=/quiche/libquiche.a \
       -DCURL_ZSTD=1 \
       -DZstd_INCLUDE_DIR=/zstd-${ZSTD_COMMIT}/build/installed/include \
       -DZstd_LIBRARY=/zstd-${ZSTD_COMMIT}/build/installed/lib/libzstd.a \
