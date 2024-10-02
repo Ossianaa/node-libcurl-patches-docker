@@ -76,10 +76,14 @@ jobs:
         if: ${{ !matrix.settings.docker }}
         run: ${{ matrix.settings.build }}
         shell: bash
+      - name: ls
+        run: |
+          ls
+          ls quiche
+        shell: bash
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: quiche-${{ matrix.settings.target }}
           path: |
             quiche/target/*
-          if-no-files-found: error
