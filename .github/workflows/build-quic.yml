@@ -30,7 +30,7 @@ jobs:
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             build: >-
               cargo build --package quiche --release --target=x86_64-unknown-linux-gnu --features ffi,pkg-config-meta,qlog --no-default-features
-              
+
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
@@ -60,7 +60,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: "https://github.com/cloudflare/quiche"
+          repository: "cloudflare/quiche"
           ref: "v0.22.0"
       - name: Install
         uses: dtolnay/rust-toolchain@stable
