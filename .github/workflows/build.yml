@@ -105,11 +105,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: quiche-x86_64-unknown-linux-gnu
-          path: ./quiche-x86_64-unknown-linux-gnu
+          path: ./quiche
 
       - name: Copy quiche header
         run: |
-          cp ./quiche.h ./quiche-x86_64-unknown-linux-gnu
+          cp ./quiche.h ./quiche
         shell: bash
 
       - name: Build the Docker image
@@ -143,11 +143,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: quiche-x86_64-unknown-linux-gnu
-          path: ./quiche-x86_64-unknown-linux-gnu
+          path: ./quiche
 
       - name: Copy quiche header
         run: |
-          cp ./quiche.h ./quiche-x86_64-unknown-linux-gnu
+          cp ./quiche.h ./quiche
         shell: bash
 
       - name: Build the Docker image
@@ -181,11 +181,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: quiche-x86_64-pc-windows-msvc
-          path: ./quiche-x86_64-pc-windows-msvc
+          path: ./quiche
 
       - name: Copy quiche header
         run: |
-          cp ./quiche.h ./quiche-x86_64-pc-windows-msvc
+          cp ./quiche.h ./quiche
         shell: bash
       - name: Build the Docker image
         run: docker build . -f Dockerfile-x86_64-pc-windows-msvc -t curl_x86_64-pc-windows-msvc
@@ -224,11 +224,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: quiche-x86_64-apple-darwin
-          path: ./quiche-x86_64-apple-darwin
+          path: ./quiche
 
       - name: Copy quiche header
         run: |
-          cp ./quiche.h ./quiche-x86_64-apple-darwin
+          cp ./quiche.h ./quiche
         shell: bash
       - name: Build the Docker image
         run: docker build . -f Dockerfile-x86_64-apple-darwin -t curl_x86_64-apple-darwin
@@ -261,11 +261,11 @@ jobs:
           uses: actions/download-artifact@v4
           with:
             name: quiche-aarch64-apple-darwin
-            path: ./quiche-aarch64-apple-darwin
+            path: ./quiche
 
         - name: Copy quiche header
           run: |
-            cp ./quiche.h ./quiche-aarch64-apple-darwin
+            cp ./quiche.h ./quiche
           shell: bash
           
         - name: Build the Docker image
