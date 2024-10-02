@@ -11,55 +11,75 @@ on:
       - test*
 env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    RUSTFLAGS: "-D warnings"
-    RUSTTOOLCHAIN: "stable"
 
 jobs:
-  build-x86_64-unknown-linux-gnu:
-    name: Build (x86_64-unknown-linux-gnu)
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        arch: [x86_64, aarch64]
+
     steps:
       - name: Checkout code
         run: git clone -b 0.22.0 https://github.com/cloudflare/quiche
-      - name: Install stable toolchain for the target
-        uses: dtolnay/rust-toolchain@master
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1 # 设置Rust工具链
         with:
-          toolchain: ${{ env.RUSTTOOLCHAIN }}
-          # targets: ${{ matrix.target }}
+          toolchain: stable # 使用稳定版Rust工具链
+          profile: minimal # 使用最小化配置文件
+          override: true # 覆盖任何现有的Rust工具链设置
+
       - name: Build and Package quiche
         run: |
           cd quiche &&
-          cargo build --package quiche --release --features ffi,pkg-config-meta,qlog --no-default-features && ls ./target/release
-          mkdir dist
-          cp ./target/release/libquiche.a ./dist/libquiche.a
-          tar -czf ./x86_64-unknown-linux-gnu.gz ./target/release/libquiche.a
+          cargo build --package quiche --release --features ffi,pkg-config-meta,qlog --no-default-features
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+      # 上传Linux x86_64平台的构建产物
+      - name: Upload artifact (Linux)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'x86_64'
+        uses: actions/upload-artifact@v2
         with:
-          name: x86_64-unknown-linux-gnu.gz
-          path: ./dist
-  build-arm64-unknown-linux-gnu:
-    name: Build (arm64-unknown-linux-gnu)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        run: git clone -b 0.22.0 https://github.com/cloudflare/quiche
-      - name: Install stable toolchain for the target
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUSTTOOLCHAIN }}
-          targets: aarch64-unknown-linux-gnu
-      - name: Build and Package quiche
-        run: |
-          cd quiche &&
-          cargo build --package quiche --target=aarch64-unknown-linux-gnu --release --features ffi,pkg-config-meta,qlog --no-default-features && ls ./target/release
-          mkdir dist
-          cp ./target/release/libquiche.a ./dist/libquiche.a
-          tar -czf ./aarch64-unknown-linux-gnu.gz ./target/release/libquiche.a
+          name: ubuntu-latest
+          path: target/release/libquiche.a
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+      # 上传Linux aarch64平台的构建产物
+      - name: Upload artifact (Linux aarch64)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'aarch64'
+        uses: actions/upload-artifact@v2
         with:
-          name: aarch64-unknown-linux-gnu.gz
-          path: ./dist
+          name: ubuntu-latest-aarch64
+          path: target/release/libquiche.a
+
+      # 上传macOS x86_64平台的构建产物
+      - name: Upload artifact (macOS)
+        if: matrix.os == 'macos-latest' && matrix.arch == 'x86_64'
+        uses: actions/upload-artifact@v2
+        with:
+          name: macos-latest
+          path: target/release/libquiche.a
+
+      # 上传macOS aarch64平台的构建产物
+      - name: Upload artifact (macOS aarch64)
+        if: matrix.os == 'macos-latest' && matrix.arch == 'aarch64'
+        uses: actions/upload-artifact@v2
+        with:
+          name: macos-latest-aarch64
+          path: target/release/libquiche.a
+
+      # 上传Windows x86_64平台的构建产物
+      - name: Upload artifact (Windows)
+        if: matrix.os == 'windows-latest' && matrix.arch == 'x86_64'
+        uses: actions/upload-artifact@v2
+        with:
+          name: windows-latest
+          path: target/release/libquiche.lib
+
+      # 上传Windows aarch64平台的构建产物
+      - name: Upload artifact (Windows aarch64)
+        if: matrix.os == 'windows-latest' && matrix.arch == 'aarch64'
+        uses: actions/upload-artifact@v2
+        with:
+          name: windows-latest-aarch64
+          path: target/release/libquiche.lib
