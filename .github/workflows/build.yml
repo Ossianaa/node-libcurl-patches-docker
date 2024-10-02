@@ -50,7 +50,7 @@ jobs:
               export CFLAGS="-isysroot $SYSROOT -isystem $SYSROOT";
               cargo build --package quiche --release --target=aarch64-apple-darwin --features ffi,pkg-config-meta,qlog --no-default-features;
           
-    name: "Build"
+    name: "Build quiche"
     runs-on: ${{ matrix.settings.host }}  
     steps:
       - name: Checkout sources
@@ -104,16 +104,16 @@ jobs:
       - name: Download quiche artifacts
         uses: actions/download-artifact@v3
         with:
-          name: quiche-${{ matrix.settings.target }}
-          path: ./quiche-${{ matrix.settings.target }}
+          name: quiche-x86_64-unknown-linux-gnu
+          path: ./quiche-x86_64-unknown-linux-gnu
 
       - name: Copy quiche header
         run: |
-          cp ./quiche.h ./quiche-${{ matrix.settings.target }}
+          cp ./quiche.h ./quiche-x86_64-unknown-linux-gnu
         shell: bash
 
       - name: Build the Docker image
-        run: docker build . -f Dockerfile-x86_64-unknown-linux-gnu -t curl_x86_64-unknown-linux-gnu -v ${{ github.workspace }}/quiche-${{ matrix.settings.target }}:/quiche
+        run: docker build . -f Dockerfile-x86_64-unknown-linux-gnu -t curl_x86_64-unknown-linux-gnu -v ${{ github.workspace }}/quiche-x86_64-unknown-linux-gnu:/quiche
 
       - name: Run the Docker container
         run: docker run --rm -v ./output:/output curl_x86_64-unknown-linux-gnu
@@ -139,8 +139,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
 
+      - name: Download quiche artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: quiche-x86_64-unknown-linux-gnu
+          path: ./quiche-x86_64-unknown-linux-gnu
+
+      - name: Copy quiche header
+        run: |
+          cp ./quiche.h ./quiche-x86_64-unknown-linux-gnu
+        shell: bash
+
       - name: Build the Docker image
-        run: docker build . -f Dockerfile-arm64-unknown-linux-gnu -t curl_arm64-unknown-linux-gnu
+        run: docker build . -f Dockerfile-arm64-unknown-linux-gnu -t curl_arm64-unknown-linux-gnu -v ${{ github.workspace }}/quiche-x86_64-unknown-linux-gnu:/quiche
 
       - name: Run the Docker container
         run: docker run --rm -v ./output:/output curl_arm64-unknown-linux-gnu
@@ -166,8 +177,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
 
+      - name: Download quiche artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: quiche-x86_64-pc-windows-msvc
+          path: ./quiche-x86_64-pc-windows-msvc
+
+      - name: Copy quiche header
+        run: |
+          cp ./quiche.h ./quiche-x86_64-pc-windows-msvc
+        shell: bash
       - name: Build the Docker image
-        run: docker build . -f Dockerfile-x86_64-pc-windows-msvc -t curl_x86_64-pc-windows-msvc
+        run: docker build . -f Dockerfile-x86_64-pc-windows-msvc -t curl_x86_64-pc-windows-msvc -v ${{ github.workspace }}/quiche-x86_64-pc-windows-msvc:/quiche
 
       - name: Run the Docker container
         run: docker run --name win_docker curl_x86_64-pc-windows-msvc
@@ -198,9 +219,19 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
+     
+      - name: Download quiche artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: quiche-x86_64-apple-darwin
+          path: ./quiche-x86_64-apple-darwin
 
+      - name: Copy quiche header
+        run: |
+          cp ./quiche.h ./quiche-x86_64-apple-darwin
+        shell: bash
       - name: Build the Docker image
-        run: docker build . -f Dockerfile-x86_64-apple-darwin -t curl_x86_64-apple-darwin
+        run: docker build . -f Dockerfile-x86_64-apple-darwin -t curl_x86_64-apple-darwin -v ${{ github.workspace }}/quiche-x86_64-apple-darwin:/quiche
 
       - name: Run the Docker container
         run: docker run --rm -v ./output:/output curl_x86_64-apple-darwin
@@ -226,8 +257,19 @@ jobs:
         - name: Set up Docker Buildx
           uses: docker/setup-buildx-action@v1
 
+        - name: Download quiche artifacts
+          uses: actions/download-artifact@v3
+          with:
+            name: quiche-aarch64-apple-darwin
+            path: ./quiche-aarch64-apple-darwin
+
+        - name: Copy quiche header
+          run: |
+            cp ./quiche.h ./quiche-aarch64-apple-darwin
+          shell: bash
+          
         - name: Build the Docker image
-          run: docker build . -f Dockerfile-arm64-apple-darwin -t curl_arm64-apple-darwin
+          run: docker build . -f Dockerfile-arm64-apple-darwin -t curl_arm64-apple-darwin -v ${{ github.workspace }}/quiche-aarch64-apple-darwin:/quiche
 
         - name: Run the Docker container
           run: docker run --rm -v ./output:/output curl_arm64-apple-darwin
