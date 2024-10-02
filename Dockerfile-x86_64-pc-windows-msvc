@@ -107,7 +107,7 @@ RUN echo "cd C:/brotli && del build && \
       -DNGHTTP2_LIBRARY=C:/nghttp2/build/installed/lib/nghttp2.lib \
       -DUSE_QUICHE=1 \
       -DQUICHE_INCLUDE_DIR=/quiche \
-      -DQUICHE_LIBRARY=/quiche/libquiche.lib \
+      -DQUICHE_LIBRARY=/quiche/quiche.lib \
       -DCURL_ZSTD=1 \
       -DZstd_INCLUDE_DIR=C:/zstd/build/installed/include \
       -DZstd_LIBRARY=C:/zstd/build/installed/lib/zstd_static.lib \
