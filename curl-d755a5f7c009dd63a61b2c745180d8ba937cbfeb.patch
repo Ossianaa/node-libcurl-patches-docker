@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 1b19c681d..55cc1351b 100644
+index 1b19c681d..ae12c4c87 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -706,7 +706,7 @@ if(USE_QUICHE)
@@ -11,6 +11,19 @@ index 1b19c681d..55cc1351b 100644
    set(USE_QUICHE ON)
    include_directories(${QUICHE_INCLUDE_DIRS})
    list(APPEND CURL_LIBS ${QUICHE_LIBRARIES})
+@@ -733,6 +733,12 @@ if(NOT CURL_DISABLE_SRP AND (HAVE_GNUTLS_SRP OR HAVE_OPENSSL_SRP))
+   set(USE_TLS_SRP 1)
+ endif()
+ 
++if(WIN32)
++  #for quiche static
++  list(APPEND CURL_LIBS "ntdll")
++  list(APPEND CURL_LIBS "Userenv")
++endif()
++
+ if(NOT CURL_DISABLE_LDAP)
+   if(WIN32)
+     option(USE_WIN32_LDAP "Use Windows LDAP implementation" ON)
 diff --git a/include/curl/curl.h b/include/curl/curl.h
 index bf71d82fb..46c92f380 100644
 --- a/include/curl/curl.h
