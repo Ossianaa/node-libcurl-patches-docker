@@ -1,3 +1,16 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1b19c681d..55cc1351b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -706,7 +706,7 @@ if(USE_QUICHE)
+     message(FATAL_ERROR "Only one HTTP/3 backend can be selected!")
+   endif()
+   find_package(QUICHE REQUIRED)
+-  CheckQuicSupportInOpenSSL()
++#  CheckQuicSupportInOpenSSL()
+   set(USE_QUICHE ON)
+   include_directories(${QUICHE_INCLUDE_DIRS})
+   list(APPEND CURL_LIBS ${QUICHE_LIBRARIES})
 diff --git a/include/curl/curl.h b/include/curl/curl.h
 index bf71d82fb..46c92f380 100644
 --- a/include/curl/curl.h
