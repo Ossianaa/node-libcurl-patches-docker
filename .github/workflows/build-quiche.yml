@@ -1,0 +1,39 @@
+name: Publish quiche module
+
+
+permissions:
+  contents: write
+  id-token: write
+
+on:
+  push:
+    tags:
+      - test*
+env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    RUSTFLAGS: "-D warnings"
+    RUSTTOOLCHAIN: "stable"
+
+jobs:
+  build-x86_64-unknown-linux-gnu:
+    name: Build (x86_64-unknown-linux-gnu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        run: git clone -b 0.22.0 https://github.com/cloudflare/quiche
+      - name: Install stable toolchain for the target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTTOOLCHAIN }}
+          # targets: ${{ matrix.target }}
+      - name: Build and Package quiche
+        run: |
+          cd quiche &&
+          cargo build --package quiche --release --features ffi,pkg-config-meta,qlog --no-default-features &&
+          tar -czf ./x86_64-unknown-linux-gnu.tar.gz ./target/release/quiche.a
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: x86_64-unknown-linux-gnu.tar.gz
+          path: ./output
