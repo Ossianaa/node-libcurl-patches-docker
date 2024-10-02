@@ -53,9 +53,13 @@ jobs:
     name: "Build"
     runs-on: ${{ matrix.settings.host }}  
     steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
       - name: Fetch quiche
         run: |
           git clone -b 0.22.0 https://github.com/cloudflare/quiche
+          cd quiche
+          patch -p1 < ../quiche-*.patch
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         if: ${{ !matrix.settings.docker }}
@@ -73,3 +77,11 @@ jobs:
         if: ${{ !matrix.settings.docker }}
         run: ${{ matrix.settings.build }}
         shell: bash
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: quiche-${{ matrix.settings.target }}
+          path: |
+            ./quiche/target/release/*.a
+            ./quiche/target/release/*.lib
+          if-no-files-found: error

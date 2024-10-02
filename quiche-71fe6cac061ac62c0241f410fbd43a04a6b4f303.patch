@@ -1,0 +1,10 @@
+diff --git a/quiche/Cargo.toml b/quiche/Cargo.toml
+index e8e5129d..646c3d39 100644
+--- a/quiche/Cargo.toml
++++ b/quiche/Cargo.toml
+@@ -85,4 +85,4 @@ mio = { version = "0.8", features = ["net", "os-poll"] }
+ url = "2.5"
+ 
+ [lib]
+-crate-type = ["lib", "staticlib", "cdylib"]
++crate-type = ["staticlib"]
