@@ -91,6 +91,7 @@ RUN curl -L https://github.com/cloudflare/quiche/archive/${QUIC_COMMIT}.tar.gz -
     tar -xf quiche-${QUIC_COMMIT}.tar.gz
 
 RUN cd quiche-${QUIC_COMMIT} && \
+    $HOME/.cargo/bin/rustup target add aarch64-unknown-linux-gnu && \
     $HOME/.cargo/bin/cargo build --package quiche --release --target=aarch64-unknown-linux-gnu --features ffi,pkg-config-meta,qlog --no-default-features
 
 RUN cd quiche-${QUIC_COMMIT} && \
