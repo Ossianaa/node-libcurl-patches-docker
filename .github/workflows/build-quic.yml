@@ -1,15 +1,5 @@
 name: "Build quic"
 
-env:
-  APP_NAME: swc
-  MACOSX_DEPLOYMENT_TARGET: "10.13"
-  CARGO_INCREMENTAL: 0
-  CARGO_PROFILE_RELEASE_LTO: "fat"
-  CI: "1"
-  DISABLE_PLUGIN_E2E_TESTS: true
-  # https://github.com/actions/setup-node/issues/899#issuecomment-1819151595
-  SKIP_YARN_COREPACK_CHECK: 1
-
 on:
   push:
     tags:
@@ -80,7 +70,6 @@ jobs:
           run: >-
             ${{ matrix.settings.build }}
       - name: Build
-        working-directory: ./packages/${{ inputs.package }}
         if: ${{ !matrix.settings.docker }}
         run: ${{ matrix.settings.build }}
         shell: bash
