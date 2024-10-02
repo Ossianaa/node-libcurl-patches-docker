@@ -72,7 +72,7 @@ jobs:
         if: ${{ matrix.settings.docker }}
         with:
           image: ${{ matrix.settings.docker }}
-          options: -v ${{ env.HOME }}/.cargo/git:/root/.cargo/git -v ${{ env.HOME }}/.cargo/registry:/root/.cargo/registry -v ${{ github.workspace }}:/build -w /build
+          options: -v ${{ env.HOME }}/.cargo/git:/root/.cargo/git -v ${{ env.HOME }}/.cargo/registry:/root/.cargo/registry -v ${{ github.workspace }}:/
           run: >-
             ${{ matrix.settings.build }}
       - name: Build
@@ -84,5 +84,5 @@ jobs:
         with:
           name: quiche-${{ matrix.settings.target }}
           path: |
-            quiche/target/*
+            quiche/*
           if-no-files-found: error
