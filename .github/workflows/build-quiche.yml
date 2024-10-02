@@ -30,13 +30,15 @@ jobs:
         run: |
           cd quiche &&
           cargo build --package quiche --release --features ffi,pkg-config-meta,qlog --no-default-features && ls ./target/release
-          tar -czf ./x86_64-unknown-linux-gnu.tar.gz ./target/release/libquiche.a
+          mkdir dist
+          cp ./target/release/libquiche.a ./dist/libquiche.a
+          tar -czf ./x86_64-unknown-linux-gnu.gz ./target/release/libquiche.a
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: x86_64-unknown-linux-gnu.tar.gz
-          path: ./quiche
+          name: x86_64-unknown-linux-gnu.gz
+          path: ./dist
   build-arm64-unknown-linux-gnu:
     name: Build (arm64-unknown-linux-gnu)
     runs-on: ubuntu-latest
@@ -51,11 +53,13 @@ jobs:
       - name: Build and Package quiche
         run: |
           cd quiche &&
-          cargo build --package quiche --release --features ffi,pkg-config-meta,qlog --no-default-features && ls ./target/release
+          cargo build --package quiche --target=aarch64-unknown-linux-gnu --release --features ffi,pkg-config-meta,qlog --no-default-features && ls ./target/release
+          mkdir dist
+          cp ./target/release/libquiche.a ./dist/libquiche.a
           tar -czf ./aarch64-unknown-linux-gnu.gz ./target/release/libquiche.a
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
           name: aarch64-unknown-linux-gnu.gz
-          path: ./quiche
+          path: ./dist
