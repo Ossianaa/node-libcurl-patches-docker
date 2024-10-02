@@ -14,7 +14,7 @@ ENV TZ=Etc/UTC
 WORKDIR /src
 
 RUN apt-get update && \
-    apt-get install -y curl patch
+    apt-get install -y curl patch build-essential
 
 RUN curl -L https://github.com/google/brotli/archive/${BROTLI_COMMIT}.tar.gz -o brotli-${BROTLI_COMMIT}.tar.gz && \
     tar -xf brotli-${BROTLI_COMMIT}.tar.gz
