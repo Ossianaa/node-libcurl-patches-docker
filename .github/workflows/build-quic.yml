@@ -61,9 +61,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Fetch quiche
         run: |
-          git clone -b 0.22.0 https://github.com/cloudflare/quiche
-          cd quiche
-          git apply ../quiche-*.patch
+          git clone -b build-with-curl https://github.com/Ossianaa/quiche
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         if: ${{ !matrix.settings.docker }}
