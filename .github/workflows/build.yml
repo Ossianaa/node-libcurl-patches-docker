@@ -120,7 +120,7 @@ jobs:
       
       - name: Copy quiche library
         run: |
-          cp ./quiche/libquiche.a ./output
+          cp /quiche/libquiche.a /output
       
       - name: Compress as tar
         run: |
@@ -162,7 +162,7 @@ jobs:
       
       - name: Copy quiche library
         run: |
-          cp ./quiche/libquiche.a ./output
+          cp /quiche/libquiche.a /output
       
       - name: Compress as tar
         run: |
@@ -246,7 +246,7 @@ jobs:
       
       - name: Copy quiche library
         run: |
-          cp ./quiche/libquiche.a ./output
+          cp /quiche/libquiche.a /output
           
       - name: Compress as tar
         run: |
@@ -288,7 +288,7 @@ jobs:
         
         - name: Copy quiche library
           run: |
-            cp ./quiche/libquiche.a ./output
+            cp /quiche/libquiche.a /output
 
         - name: Compress as tar
           run: |
