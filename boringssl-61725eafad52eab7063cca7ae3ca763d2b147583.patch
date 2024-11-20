@@ -1,8 +1,8 @@
 diff --git a/include/openssl/ssl.h b/include/openssl/ssl.h
-index 839cf2f73..5b0164882 100644
+index b0abe116d..ca44d29f3 100644
 --- a/include/openssl/ssl.h
 +++ b/include/openssl/ssl.h
-@@ -5315,6 +5315,9 @@ OPENSSL_EXPORT int SSL_CTX_set1_curves_list(SSL_CTX *ctx, const char *curves);
+@@ -5606,6 +5606,9 @@ OPENSSL_EXPORT int SSL_CTX_set1_curves_list(SSL_CTX *ctx, const char *curves);
  // SSL_set1_curves_list calls |SSL_set1_groups_list|.
  OPENSSL_EXPORT int SSL_set1_curves_list(SSL *ssl, const char *curves);
  
@@ -13,7 +13,7 @@ index 839cf2f73..5b0164882 100644
  // |SSL_get_negotiated_group| to return an unrecognized group. BoringSSL never
  // returns this value, but we define this constant for compatibility.
 diff --git a/include/openssl/tls1.h b/include/openssl/tls1.h
-index c1207a3b7..602cc83d1 100644
+index 60301885a..c2d80c70f 100644
 --- a/include/openssl/tls1.h
 +++ b/include/openssl/tls1.h
 @@ -181,6 +181,7 @@ extern "C" {
@@ -25,10 +25,10 @@ index c1207a3b7..602cc83d1 100644
  #define TLSEXT_TYPE_server_name 0
  #define TLSEXT_TYPE_status_request 5
 diff --git a/ssl/extensions.cc b/ssl/extensions.cc
-index b13400097..41423b31a 100644
+index ce908118d..9a38d3c65 100644
 --- a/ssl/extensions.cc
 +++ b/ssl/extensions.cc
-@@ -396,7 +396,7 @@ static const uint16_t kVerifySignatureAlgorithms[] = {
+@@ -397,7 +397,7 @@ static const uint16_t kVerifySignatureAlgorithms[] = {
      SSL_SIGN_RSA_PKCS1_SHA512,
  
      // For now, SHA-1 is still accepted but least preferable.
@@ -37,7 +37,7 @@ index b13400097..41423b31a 100644
  };
  
  // kSignSignatureAlgorithms is the default list of supported signature
-@@ -420,8 +420,8 @@ static const uint16_t kSignSignatureAlgorithms[] = {
+@@ -421,8 +421,8 @@ static const uint16_t kSignSignatureAlgorithms[] = {
      SSL_SIGN_RSA_PKCS1_SHA512,
  
      // If the peer supports nothing else, sign with SHA-1.
@@ -48,7 +48,7 @@ index b13400097..41423b31a 100644
  };
  
  static Span<const uint16_t> tls12_get_verify_sigalgs(const SSL_HANDSHAKE *hs) {
-@@ -1148,20 +1148,20 @@ static bool ext_ocsp_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
+@@ -1136,20 +1136,20 @@ static bool ext_ocsp_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
  static bool ext_npn_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
                                      CBB *out_compressible,
                                      ssl_client_hello_type_t type) {
@@ -83,7 +83,88 @@ index b13400097..41423b31a 100644
  
    return true;
  }
-@@ -2757,6 +2757,24 @@ static bool ext_quic_transport_params_add_serverhello_legacy(SSL_HANDSHAKE *hs,
+@@ -1935,7 +1935,6 @@ static bool ext_pre_shared_key_add_clienthello(const SSL_HANDSHAKE *hs,
+   // Fill in a placeholder zero binder of the appropriate length. It will be
+   // computed and filled in later after length prefixes are computed.
+   size_t binder_len = EVP_MD_size(ssl_session_get_digest(ssl->session.get()));
+-
+   CBB contents, identity, ticket, binders, binder;
+   if (!CBB_add_u16(out, TLSEXT_TYPE_pre_shared_key) ||
+       !CBB_add_u16_length_prefixed(out, &contents) ||
+@@ -2557,39 +2556,39 @@ static bool ext_supported_groups_parse_clienthello(SSL_HANDSHAKE *hs,
+ //
+ // https://tools.ietf.org/html/rfc8446#section-4.2.4
+ 
+-static bool ext_certificate_authorities_add_clienthello(
+-    const SSL_HANDSHAKE *hs, CBB *out, CBB *out_compressible,
+-    ssl_client_hello_type_t type) {
+-  if (ssl_has_CA_names(hs->config)) {
+-    CBB ca_contents;
+-    if (!CBB_add_u16(out, TLSEXT_TYPE_certificate_authorities) ||  //
+-        !CBB_add_u16_length_prefixed(out, &ca_contents) ||         //
+-        !ssl_add_CA_names(hs, &ca_contents) ||                     //
+-        !CBB_flush(out)) {
+-      return false;
+-    }
+-  }
+-  return true;
+-}
+-
+-static bool ext_certificate_authorities_parse_clienthello(SSL_HANDSHAKE *hs,
+-                                                          uint8_t *out_alert,
+-                                                          CBS *contents) {
+-  if (contents == NULL) {
+-    return true;
+-  }
+-
+-  if (CBS_len(contents) == 0) {
+-    return false;
+-  }
+-
+-  hs->ca_names = SSL_parse_CA_list(hs->ssl, out_alert, contents);
+-  if (!hs->ca_names) {
+-    return false;
+-  }
+-
+-  return true;
+-}
++//static bool ext_certificate_authorities_add_clienthello(
++//    const SSL_HANDSHAKE *hs, CBB *out, CBB *out_compressible,
++//    ssl_client_hello_type_t type) {
++//  if (ssl_has_CA_names(hs->config)) {
++//    CBB ca_contents;
++//    if (!CBB_add_u16(out, TLSEXT_TYPE_certificate_authorities) ||  //
++//        !CBB_add_u16_length_prefixed(out, &ca_contents) ||         //
++//        !ssl_add_CA_names(hs, &ca_contents) ||                     //
++//        !CBB_flush(out)) {
++//      return false;
++//    }
++//  }
++//  return true;
++//}
++
++//static bool ext_certificate_authorities_parse_clienthello(SSL_HANDSHAKE *hs,
++//                                                          uint8_t *out_alert,
++//                                                          CBS *contents) {
++//  if (contents == NULL) {
++//    return true;
++//  }
++//
++//  if (CBS_len(contents) == 0) {
++//    return false;
++//  }
++//
++//  hs->ca_names = SSL_parse_CA_list(hs->ssl, out_alert, contents);
++//  if (!hs->ca_names) {
++//    return false;
++//  }
++//
++//  return true;
++//}
+ 
+ 
+ // QUIC Transport Parameters
+@@ -2786,6 +2785,24 @@ static bool ext_quic_transport_params_add_serverhello_legacy(SSL_HANDSHAKE *hs,
  static bool ext_delegated_credential_add_clienthello(
      const SSL_HANDSHAKE *hs, CBB *out, CBB *out_compressible,
      ssl_client_hello_type_t type) {
@@ -108,7 +189,7 @@ index b13400097..41423b31a 100644
    return true;
  }
  
-@@ -2950,12 +2968,12 @@ static bool ext_alps_add_clienthello_impl(const SSL_HANDSHAKE *hs, CBB *out,
+@@ -2978,12 +2995,12 @@ static bool ext_alps_add_clienthello_impl(const SSL_HANDSHAKE *hs, CBB *out,
    return CBB_flush(out_compressible);
  }
  
@@ -127,12 +208,11 @@ index b13400097..41423b31a 100644
  
  static bool ext_alps_add_clienthello_old(const SSL_HANDSHAKE *hs, CBB *out,
                                           CBB *out_compressible,
-@@ -2996,12 +3014,12 @@ static bool ext_alps_parse_serverhello_impl(SSL_HANDSHAKE *hs,
+@@ -3023,11 +3040,12 @@ static bool ext_alps_parse_serverhello_impl(SSL_HANDSHAKE *hs,
    return true;
  }
  
--static bool ext_alps_parse_serverhello(SSL_HANDSHAKE *hs,
--                                       uint8_t *out_alert,
+-static bool ext_alps_parse_serverhello(SSL_HANDSHAKE *hs, uint8_t *out_alert,
 -                                       CBS *contents) {
 -  return ext_alps_parse_serverhello_impl(hs, out_alert, contents,
 -                                         /*use_new_codepoint=*/true);
@@ -145,8 +225,8 @@ index b13400097..41423b31a 100644
 +//}
  
  static bool ext_alps_parse_serverhello_old(SSL_HANDSHAKE *hs,
-                                            uint8_t *out_alert,
-@@ -3044,9 +3062,9 @@ static bool ext_alps_add_serverhello_impl(SSL_HANDSHAKE *hs, CBB *out,
+                                            uint8_t *out_alert, CBS *contents) {
+@@ -3069,9 +3087,9 @@ static bool ext_alps_add_serverhello_impl(SSL_HANDSHAKE *hs, CBB *out,
    return true;
  }
  
@@ -159,7 +239,7 @@ index b13400097..41423b31a 100644
  
  static bool ext_alps_add_serverhello_old(SSL_HANDSHAKE *hs, CBB *out) {
    return ext_alps_add_serverhello_impl(hs, out, /*use_new_codepoint=*/false);
-@@ -3108,6 +3126,35 @@ bool ssl_negotiate_alps(SSL_HANDSHAKE *hs, uint8_t *out_alert,
+@@ -3133,194 +3151,223 @@ bool ssl_negotiate_alps(SSL_HANDSHAKE *hs, uint8_t *out_alert,
    return true;
  }
  
@@ -194,19 +274,355 @@ index b13400097..41423b31a 100644
 +}
  // kExtensions contains all the supported extensions.
  static const struct tls_extension kExtensions[] = {
-   {
-@@ -3273,14 +3320,14 @@ static const struct tls_extension kExtensions[] = {
-     ext_delegated_credential_parse_clienthello,
-     dont_add_serverhello,
-   },
--  {
--    TLSEXT_TYPE_application_settings,
--    ext_alps_add_clienthello,
--    ext_alps_parse_serverhello,
--    // ALPS is negotiated late in |ssl_negotiate_alpn|.
--    ignore_parse_clienthello,
--    ext_alps_add_serverhello,
--  },
+-    {
+-        TLSEXT_TYPE_server_name,
+-        ext_sni_add_clienthello,
+-        ext_sni_parse_serverhello,
+-        ext_sni_parse_clienthello,
+-        ext_sni_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_encrypted_client_hello,
+-        ext_ech_add_clienthello,
+-        ext_ech_parse_serverhello,
+-        ext_ech_parse_clienthello,
+-        ext_ech_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_extended_master_secret,
+-        ext_ems_add_clienthello,
+-        ext_ems_parse_serverhello,
+-        ext_ems_parse_clienthello,
+-        ext_ems_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_renegotiate,
+-        ext_ri_add_clienthello,
+-        ext_ri_parse_serverhello,
+-        ext_ri_parse_clienthello,
+-        ext_ri_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_supported_groups,
+-        ext_supported_groups_add_clienthello,
+-        ext_supported_groups_parse_serverhello,
+-        ext_supported_groups_parse_clienthello,
+-        dont_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_ec_point_formats,
+-        ext_ec_point_add_clienthello,
+-        ext_ec_point_parse_serverhello,
+-        ext_ec_point_parse_clienthello,
+-        ext_ec_point_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_session_ticket,
+-        ext_ticket_add_clienthello,
+-        ext_ticket_parse_serverhello,
+-        // Ticket extension client parsing is handled in ssl_session.c
+-        ignore_parse_clienthello,
+-        ext_ticket_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_application_layer_protocol_negotiation,
+-        ext_alpn_add_clienthello,
+-        ext_alpn_parse_serverhello,
+-        // ALPN is negotiated late in |ssl_negotiate_alpn|.
+-        ignore_parse_clienthello,
+-        ext_alpn_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_status_request,
+-        ext_ocsp_add_clienthello,
+-        ext_ocsp_parse_serverhello,
+-        ext_ocsp_parse_clienthello,
+-        ext_ocsp_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_signature_algorithms,
+-        ext_sigalgs_add_clienthello,
+-        forbid_parse_serverhello,
+-        ext_sigalgs_parse_clienthello,
+-        dont_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_next_proto_neg,
+-        ext_npn_add_clienthello,
+-        ext_npn_parse_serverhello,
+-        ext_npn_parse_clienthello,
+-        ext_npn_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_certificate_timestamp,
+-        ext_sct_add_clienthello,
+-        ext_sct_parse_serverhello,
+-        ext_sct_parse_clienthello,
+-        ext_sct_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_channel_id,
+-        ext_channel_id_add_clienthello,
+-        ext_channel_id_parse_serverhello,
+-        ext_channel_id_parse_clienthello,
+-        ext_channel_id_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_srtp,
+-        ext_srtp_add_clienthello,
+-        ext_srtp_parse_serverhello,
+-        ext_srtp_parse_clienthello,
+-        ext_srtp_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_key_share,
+-        ext_key_share_add_clienthello,
+-        forbid_parse_serverhello,
+-        ignore_parse_clienthello,
+-        dont_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_psk_key_exchange_modes,
+-        ext_psk_key_exchange_modes_add_clienthello,
+-        forbid_parse_serverhello,
+-        ext_psk_key_exchange_modes_parse_clienthello,
+-        dont_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_early_data,
+-        ext_early_data_add_clienthello,
+-        ext_early_data_parse_serverhello,
+-        ext_early_data_parse_clienthello,
+-        ext_early_data_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_supported_versions,
+-        ext_supported_versions_add_clienthello,
+-        forbid_parse_serverhello,
+-        ignore_parse_clienthello,
+-        dont_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_cookie,
+-        ext_cookie_add_clienthello,
+-        forbid_parse_serverhello,
+-        ignore_parse_clienthello,
+-        dont_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_quic_transport_parameters,
+-        ext_quic_transport_params_add_clienthello,
+-        ext_quic_transport_params_parse_serverhello,
+-        ext_quic_transport_params_parse_clienthello,
+-        ext_quic_transport_params_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_quic_transport_parameters_legacy,
+-        ext_quic_transport_params_add_clienthello_legacy,
+-        ext_quic_transport_params_parse_serverhello_legacy,
+-        ext_quic_transport_params_parse_clienthello_legacy,
+-        ext_quic_transport_params_add_serverhello_legacy,
+-    },
+-    {
+-        TLSEXT_TYPE_cert_compression,
+-        cert_compression_add_clienthello,
+-        cert_compression_parse_serverhello,
+-        cert_compression_parse_clienthello,
+-        cert_compression_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_delegated_credential,
+-        ext_delegated_credential_add_clienthello,
+-        forbid_parse_serverhello,
+-        ext_delegated_credential_parse_clienthello,
+-        dont_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_application_settings,
+-        ext_alps_add_clienthello,
+-        ext_alps_parse_serverhello,
+-        // ALPS is negotiated late in |ssl_negotiate_alpn|.
+-        ignore_parse_clienthello,
+-        ext_alps_add_serverhello,
+-    },
+-    {
+-        TLSEXT_TYPE_application_settings_old,
+-        ext_alps_add_clienthello_old,
+-        ext_alps_parse_serverhello_old,
+-        // ALPS is negotiated late in |ssl_negotiate_alpn|.
+-        ignore_parse_clienthello,
+-        ext_alps_add_serverhello_old,
+-    },
+-    {
+-        TLSEXT_TYPE_certificate_authorities,
+-        ext_certificate_authorities_add_clienthello,
+-        forbid_parse_serverhello,
+-        ext_certificate_authorities_parse_clienthello,
+-        dont_add_serverhello,
+-    },
++  {
++    TLSEXT_TYPE_server_name,
++    ext_sni_add_clienthello,
++    ext_sni_parse_serverhello,
++    ext_sni_parse_clienthello,
++    ext_sni_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_encrypted_client_hello,
++    ext_ech_add_clienthello,
++    ext_ech_parse_serverhello,
++    ext_ech_parse_clienthello,
++    ext_ech_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_extended_master_secret,
++    ext_ems_add_clienthello,
++    ext_ems_parse_serverhello,
++    ext_ems_parse_clienthello,
++    ext_ems_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_renegotiate,
++    ext_ri_add_clienthello,
++    ext_ri_parse_serverhello,
++    ext_ri_parse_clienthello,
++    ext_ri_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_supported_groups,
++    ext_supported_groups_add_clienthello,
++    ext_supported_groups_parse_serverhello,
++    ext_supported_groups_parse_clienthello,
++    dont_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_ec_point_formats,
++    ext_ec_point_add_clienthello,
++    ext_ec_point_parse_serverhello,
++    ext_ec_point_parse_clienthello,
++    ext_ec_point_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_session_ticket,
++    ext_ticket_add_clienthello,
++    ext_ticket_parse_serverhello,
++    // Ticket extension client parsing is handled in ssl_session.c
++    ignore_parse_clienthello,
++    ext_ticket_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_application_layer_protocol_negotiation,
++    ext_alpn_add_clienthello,
++    ext_alpn_parse_serverhello,
++    // ALPN is negotiated late in |ssl_negotiate_alpn|.
++    ignore_parse_clienthello,
++    ext_alpn_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_status_request,
++    ext_ocsp_add_clienthello,
++    ext_ocsp_parse_serverhello,
++    ext_ocsp_parse_clienthello,
++    ext_ocsp_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_signature_algorithms,
++    ext_sigalgs_add_clienthello,
++    forbid_parse_serverhello,
++    ext_sigalgs_parse_clienthello,
++    dont_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_next_proto_neg,
++    ext_npn_add_clienthello,
++    ext_npn_parse_serverhello,
++    ext_npn_parse_clienthello,
++    ext_npn_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_certificate_timestamp,
++    ext_sct_add_clienthello,
++    ext_sct_parse_serverhello,
++    ext_sct_parse_clienthello,
++    ext_sct_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_channel_id,
++    ext_channel_id_add_clienthello,
++    ext_channel_id_parse_serverhello,
++    ext_channel_id_parse_clienthello,
++    ext_channel_id_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_srtp,
++    ext_srtp_add_clienthello,
++    ext_srtp_parse_serverhello,
++    ext_srtp_parse_clienthello,
++    ext_srtp_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_key_share,
++    ext_key_share_add_clienthello,
++    forbid_parse_serverhello,
++    ignore_parse_clienthello,
++    dont_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_psk_key_exchange_modes,
++    ext_psk_key_exchange_modes_add_clienthello,
++    forbid_parse_serverhello,
++    ext_psk_key_exchange_modes_parse_clienthello,
++    dont_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_early_data,
++    ext_early_data_add_clienthello,
++    ext_early_data_parse_serverhello,
++    ext_early_data_parse_clienthello,
++    ext_early_data_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_supported_versions,
++    ext_supported_versions_add_clienthello,
++    forbid_parse_serverhello,
++    ignore_parse_clienthello,
++    dont_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_cookie,
++    ext_cookie_add_clienthello,
++    forbid_parse_serverhello,
++    ignore_parse_clienthello,
++    dont_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_quic_transport_parameters,
++    ext_quic_transport_params_add_clienthello,
++    ext_quic_transport_params_parse_serverhello,
++    ext_quic_transport_params_parse_clienthello,
++    ext_quic_transport_params_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_quic_transport_parameters_legacy,
++    ext_quic_transport_params_add_clienthello_legacy,
++    ext_quic_transport_params_parse_serverhello_legacy,
++    ext_quic_transport_params_parse_clienthello_legacy,
++    ext_quic_transport_params_add_serverhello_legacy,
++  },
++  {
++    TLSEXT_TYPE_cert_compression,
++    cert_compression_add_clienthello,
++    cert_compression_parse_serverhello,
++    cert_compression_parse_clienthello,
++    cert_compression_add_serverhello,
++  },
++  {
++    TLSEXT_TYPE_delegated_credential,
++    ext_delegated_credential_add_clienthello,
++    forbid_parse_serverhello,
++    ext_delegated_credential_parse_clienthello,
++    dont_add_serverhello,
++  },
 +  //{
 +  //  TLSEXT_TYPE_application_settings,
 +  //  ext_alps_add_clienthello,
@@ -215,13 +631,14 @@ index b13400097..41423b31a 100644
 +  //  ignore_parse_clienthello,
 +  //  ext_alps_add_serverhello,
 +  //},
-   {
-     TLSEXT_TYPE_application_settings_old,
-     ext_alps_add_clienthello_old,
-@@ -3289,6 +3336,13 @@ static const struct tls_extension kExtensions[] = {
-     ignore_parse_clienthello,
-     ext_alps_add_serverhello_old,
-   },
++  {
++    TLSEXT_TYPE_application_settings_old,
++    ext_alps_add_clienthello_old,
++    ext_alps_parse_serverhello_old,
++    // ALPS is negotiated late in |ssl_negotiate_alpn|.
++    ignore_parse_clienthello,
++    ext_alps_add_serverhello_old,
++  },
 +  {
 +    TLSEXT_TYPE_record_size_limit,
 +    record_size_limit_add_clienthello,
@@ -232,7 +649,7 @@ index b13400097..41423b31a 100644
  };
  
  #define kNumExtensions (sizeof(kExtensions) / sizeof(struct tls_extension))
-@@ -3302,6 +3356,12 @@ static_assert(kNumExtensions <=
+@@ -3334,6 +3381,12 @@ static_assert(kNumExtensions <=
  
  bool ssl_setup_extension_permutation(SSL_HANDSHAKE *hs) {
    if (!hs->config->permute_extensions) {
@@ -245,7 +662,7 @@ index b13400097..41423b31a 100644
      return true;
    }
  
-@@ -3378,11 +3438,16 @@ static bool ssl_add_clienthello_tlsext_inner(SSL_HANDSHAKE *hs, CBB *out,
+@@ -3410,11 +3463,16 @@ static bool ssl_add_clienthello_tlsext_inner(SSL_HANDSHAKE *hs, CBB *out,
        return false;
      }
    }
@@ -264,7 +681,7 @@ index b13400097..41423b31a 100644
      const size_t len_before = CBB_len(&extensions);
      const size_t len_compressed_before = CBB_len(compressed.get());
      if (!kExtensions[i].add_clienthello(hs, &extensions, compressed.get(),
-@@ -3439,20 +3504,18 @@ static bool ssl_add_clienthello_tlsext_inner(SSL_HANDSHAKE *hs, CBB *out,
+@@ -3471,20 +3529,18 @@ static bool ssl_add_clienthello_tlsext_inner(SSL_HANDSHAKE *hs, CBB *out,
        return false;
      }
    }
@@ -294,7 +711,7 @@ index b13400097..41423b31a 100644
    return true;
  }
  
-@@ -3488,10 +3551,22 @@ bool ssl_add_clienthello_tlsext(SSL_HANDSHAKE *hs, CBB *out, CBB *out_encoded,
+@@ -3520,10 +3576,22 @@ bool ssl_add_clienthello_tlsext(SSL_HANDSHAKE *hs, CBB *out, CBB *out_encoded,
    }
  
    bool last_was_empty = false;
@@ -318,7 +735,7 @@ index b13400097..41423b31a 100644
      const size_t len_before = CBB_len(&extensions);
      if (!kExtensions[i].add_clienthello(hs, &extensions, &extensions, type)) {
        OPENSSL_PUT_ERROR(SSL, SSL_R_ERROR_ADDING_EXTENSION);
-@@ -3564,16 +3639,19 @@ bool ssl_add_clienthello_tlsext(SSL_HANDSHAKE *hs, CBB *out, CBB *out_encoded,
+@@ -3596,16 +3664,19 @@ bool ssl_add_clienthello_tlsext(SSL_HANDSHAKE *hs, CBB *out, CBB *out_encoded,
      }
    }
  
@@ -348,31 +765,29 @@ index b13400097..41423b31a 100644
    if (CBB_len(&extensions) == 0) {
      CBB_discard_child(out);
 diff --git a/ssl/handshake_client.cc b/ssl/handshake_client.cc
-index 971ebd0b1..87faa59b0 100644
+index 776e7809e..9eef1fe74 100644
 --- a/ssl/handshake_client.cc
 +++ b/ssl/handshake_client.cc
-@@ -243,24 +243,48 @@ static bool ssl_write_client_cipher_list(const SSL_HANDSHAKE *hs, CBB *out,
-   // Add TLS 1.3 ciphers. Order ChaCha20-Poly1305 relative to AES-GCM based on
-   // hardware support.
-   if (hs->max_version >= TLS1_3_VERSION) {
+@@ -258,22 +258,48 @@ static bool ssl_write_client_cipher_list(const SSL_HANDSHAKE *hs, CBB *out,
+         TLS1_3_CK_AES_128_GCM_SHA256 & 0xffff,
+         TLS1_3_CK_CHACHA20_POLY1305_SHA256 & 0xffff,
+     };
+-
 -    const bool has_aes_hw = ssl->config->aes_hw_override
 -                                ? ssl->config->aes_hw_override_value
 -                                : EVP_has_aes_hardware();
+-    const bssl::Span<const uint16_t> ciphers =
+-        ssl->config->tls13_cipher_policy == ssl_compliance_policy_cnsa_202407
+-            ? bssl::Span<const uint16_t>(kCiphersCNSA)
+-            : (has_aes_hw ? bssl::Span<const uint16_t>(kCiphersAESHardware)
+-                          : bssl::Span<const uint16_t>(kCiphersNoAESHardware));
 -
--    if ((!has_aes_hw &&  //
--         !ssl_add_tls13_cipher(&child,
--                               TLS1_3_CK_CHACHA20_POLY1305_SHA256 & 0xffff,
--                               ssl->config->tls13_cipher_policy)) ||
--        !ssl_add_tls13_cipher(&child, TLS1_3_CK_AES_128_GCM_SHA256 & 0xffff,
--                              ssl->config->tls13_cipher_policy) ||
--        !ssl_add_tls13_cipher(&child, TLS1_3_CK_AES_256_GCM_SHA384 & 0xffff,
--                              ssl->config->tls13_cipher_policy) ||
--        (has_aes_hw &&  //
--         !ssl_add_tls13_cipher(&child,
--                               TLS1_3_CK_CHACHA20_POLY1305_SHA256 & 0xffff,
--                               ssl->config->tls13_cipher_policy))) {
--      return false;
-+    if (!ssl->ctx->cipher13_flag_list.empty()) {
+-    for (auto cipher : ciphers) {
+-      if (!ssl_add_tls13_cipher(&child, cipher,
+-                                ssl->config->tls13_cipher_policy)) {
+-        return false;
+-      }
++     if (!ssl->ctx->cipher13_flag_list.empty()) {
 +        for (uint8_t flag : ssl->ctx->cipher13_flag_list) {
 +            int id = 0;
 +            switch (flag) {
@@ -392,7 +807,7 @@ index 971ebd0b1..87faa59b0 100644
 +                return false;
 +            }
 +        }
-+    }
+     }
 +    else {
 +        const bool has_aes_hw = ssl->config->aes_hw_override
 +            ? ssl->config->aes_hw_override_value
@@ -412,12 +827,12 @@ index 971ebd0b1..87faa59b0 100644
 +                    ssl->config->tls13_cipher_policy))) {
 +            return false;
 +        }
-     }
++    }
 +    
    }
  
    if (hs->min_version < TLS1_3_VERSION && type != ssl_client_hello_inner) {
-@@ -455,7 +479,6 @@ void ssl_done_writing_client_hello(SSL_HANDSHAKE *hs) {
+@@ -474,7 +500,6 @@ void ssl_done_writing_client_hello(SSL_HANDSHAKE *hs) {
  
  static enum ssl_hs_wait_t do_start_connect(SSL_HANDSHAKE *hs) {
    SSL *const ssl = hs->ssl;
@@ -425,7 +840,7 @@ index 971ebd0b1..87faa59b0 100644
    ssl_do_info_callback(ssl, SSL_CB_HANDSHAKE_START, 1);
    // |session_reused| must be reset in case this is a renegotiation.
    ssl->s3->session_reused = false;
-@@ -536,7 +559,6 @@ static enum ssl_hs_wait_t do_start_connect(SSL_HANDSHAKE *hs) {
+@@ -555,7 +580,6 @@ static enum ssl_hs_wait_t do_start_connect(SSL_HANDSHAKE *hs) {
    } else {
      hs->early_data_offered = true;
    }
@@ -434,10 +849,10 @@ index 971ebd0b1..87faa59b0 100644
        !ssl_setup_extension_permutation(hs) ||
        !ssl_encrypt_client_hello(hs, MakeConstSpan(ech_enc, ech_enc_len)) ||
 diff --git a/ssl/internal.h b/ssl/internal.h
-index d9972dc83..f929dfb9f 100644
+index 97c9ed1ef..5d80497f9 100644
 --- a/ssl/internal.h
 +++ b/ssl/internal.h
-@@ -563,8 +563,9 @@ BSSL_NAMESPACE_BEGIN
+@@ -889,8 +889,9 @@ BSSL_NAMESPACE_BEGIN
  // Bits for |algorithm_mac| (symmetric authentication).
  #define SSL_SHA1 0x00000001u
  #define SSL_SHA256 0x00000002u
@@ -448,21 +863,21 @@ index d9972dc83..f929dfb9f 100644
  
  // Bits for |algorithm_prf| (handshake digest).
  #define SSL_HANDSHAKE_MAC_DEFAULT 0x1
-@@ -3754,6 +3755,8 @@ struct ssl_ctx_st {
+@@ -4369,6 +4370,8 @@ struct ssl_ctx_st : public bssl::RefCounted<ssl_ctx_st> {
    // |aes_hw_override| is true.
    bool aes_hw_override_value : 1;
  
 +  bssl::Array<uint8_t> cipher13_flag_list;
 +  bssl::Array<uint8_t> extension_permutation;
   private:
+   friend RefCounted;
    ~ssl_ctx_st();
-   friend OPENSSL_EXPORT void SSL_CTX_free(SSL_CTX *);
 diff --git a/ssl/ssl_cipher.cc b/ssl/ssl_cipher.cc
-index fd8cef95d..c5f86041b 100644
+index 220087a96..5d62029f7 100644
 --- a/ssl/ssl_cipher.cc
 +++ b/ssl/ssl_cipher.cc
 @@ -197,6 +197,64 @@ static constexpr SSL_CIPHER kCiphers[] = {
-      SSL_HANDSHAKE_MAC_DEFAULT,
+         SSL_HANDSHAKE_MAC_DEFAULT,
      },
  
 +    // Cipher 39
@@ -471,7 +886,7 @@ index fd8cef95d..c5f86041b 100644
 +    "TLS_DHE_RSA_WITH_AES_256_SHA",
 +    TLS1_CK_DHE_RSA_WITH_AES_256_SHA,
 +    SSL_kRSA,
-+    SSL_aRSA,
++    SSL_aRSA_DECRYPT,
 +    SSL_AES256,
 +    SSL_SHA1,
 +    SSL_HANDSHAKE_MAC_DEFAULT,
@@ -483,7 +898,7 @@ index fd8cef95d..c5f86041b 100644
 +    "TLS_RSA_WITH_AES_128_SHA256",
 +    TLS1_CK_RSA_WITH_AES_128_SHA256,
 +    SSL_kRSA,
-+    SSL_aRSA,
++    SSL_aRSA_DECRYPT,
 +    SSL_AES256,
 +    SSL_SHA1,
 +    SSL_HANDSHAKE_MAC_DEFAULT,
@@ -494,7 +909,7 @@ index fd8cef95d..c5f86041b 100644
 +    "TLS_RSA_WITH_AES_256_SHA256",
 +    TLS1_CK_RSA_WITH_AES_256_SHA256,
 +    SSL_kRSA,
-+    SSL_aRSA,
++    SSL_aRSA_DECRYPT,
 +    SSL_AES256,
 +    SSL_SHA1,
 +    SSL_HANDSHAKE_MAC_DEFAULT,
@@ -506,7 +921,7 @@ index fd8cef95d..c5f86041b 100644
 +    "TLS_DHE_RSA_WITH_AES_128_SHA256",
 +    TLS1_CK_DHE_RSA_WITH_AES_128_SHA256,
 +    SSL_kRSA,
-+    SSL_aRSA,
++    SSL_aRSA_DECRYPT,
 +    SSL_AES128,
 +    SSL_SHA1,
 +    SSL_HANDSHAKE_MAC_DEFAULT,
@@ -518,7 +933,7 @@ index fd8cef95d..c5f86041b 100644
 +    "TLS_DHE_RSA_WITH_AES_256_SHA256",
 +    TLS1_CK_DHE_RSA_WITH_AES_256_SHA256,
 +    SSL_kRSA,
-+    SSL_aRSA,
++    SSL_aRSA_DECRYPT,
 +    SSL_AES256,
 +    SSL_SHA1,
 +    SSL_HANDSHAKE_MAC_DEFAULT,
@@ -527,8 +942,8 @@ index fd8cef95d..c5f86041b 100644
  
      // Cipher 8C
 @@ -248,7 +306,29 @@ static constexpr SSL_CIPHER kCiphers[] = {
-      SSL_AEAD,
-      SSL_HANDSHAKE_MAC_SHA384,
+         SSL_AEAD,
+         SSL_HANDSHAKE_MAC_SHA384,
      },
 -
 +        // Cipher 9E
@@ -558,7 +973,7 @@ index fd8cef95d..c5f86041b 100644
  
      // Cipher 1301
 @@ -287,6 +367,17 @@ static constexpr SSL_CIPHER kCiphers[] = {
-       SSL_HANDSHAKE_MAC_SHA256,
+         SSL_HANDSHAKE_MAC_SHA256,
      },
  
 +    // Cipher C008
@@ -574,9 +989,9 @@ index fd8cef95d..c5f86041b 100644
 +    },
      // Cipher C009
      {
-      TLS1_TXT_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+         TLS1_TXT_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
 @@ -311,6 +402,17 @@ static constexpr SSL_CIPHER kCiphers[] = {
-      SSL_HANDSHAKE_MAC_DEFAULT,
+         SSL_HANDSHAKE_MAC_DEFAULT,
      },
  
 +    // Cipher C012
@@ -585,16 +1000,16 @@ index fd8cef95d..c5f86041b 100644
 +    "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA",
 +    0x0300C012,
 +    SSL_kECDHE,
-+    SSL_aRSA,
++    SSL_aRSA_DECRYPT,
 +    SSL_3DES,
 +    SSL_SHA1,
 +    SSL_HANDSHAKE_MAC_DEFAULT,
 +     },
      // Cipher C013
      {
-      TLS1_TXT_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+         TLS1_TXT_ECDHE_RSA_WITH_AES_128_CBC_SHA,
 @@ -335,6 +437,37 @@ static constexpr SSL_CIPHER kCiphers[] = {
-      SSL_HANDSHAKE_MAC_DEFAULT,
+         SSL_HANDSHAKE_MAC_DEFAULT,
      },
  
 +       // curl-impersonate: Ciphers C023, C024, C027, C028 were removed in
@@ -630,10 +1045,10 @@ index fd8cef95d..c5f86041b 100644
 +    },
      // Cipher C027
      {
-      TLS1_TXT_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+         TLS1_TXT_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
 @@ -346,6 +479,17 @@ static constexpr SSL_CIPHER kCiphers[] = {
-      SSL_SHA256,
-      SSL_HANDSHAKE_MAC_SHA256,
+         SSL_SHA256,
+         SSL_HANDSHAKE_MAC_SHA256,
      },
 +    // Cipher C028
 +    {
@@ -641,7 +1056,7 @@ index fd8cef95d..c5f86041b 100644
 +    "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384",
 +    TLS1_CK_ECDHE_RSA_WITH_AES_256_SHA384,
 +    SSL_kECDHE,
-+    SSL_aRSA,
++    SSL_aRSA_DECRYPT,
 +    SSL_AES256,
 +    SSL_SHA384,
 +    SSL_HANDSHAKE_MAC_SHA384,
@@ -688,7 +1103,7 @@ index fd8cef95d..c5f86041b 100644
  };
  
  static const size_t kCipherAliasesLen = OPENSSL_ARRAY_SIZE(kCipherAliases);
-@@ -1210,9 +1357,9 @@ bool ssl_create_cipher_list(UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
+@@ -1202,9 +1349,9 @@ bool ssl_create_cipher_list(UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
      assert(co_list[num - 1].cipher != nullptr);
    }
    assert(num == OPENSSL_ARRAY_SIZE(co_list));
@@ -701,13 +1116,13 @@ index fd8cef95d..c5f86041b 100644
    // If the rule_string begins with DEFAULT, apply the default rule before
    // using the (possibly available) additional rules.
 diff --git a/ssl/ssl_key_share.cc b/ssl/ssl_key_share.cc
-index 80317d898..1d829f520 100644
+index d8355596f..a36dcbfb6 100644
 --- a/ssl/ssl_key_share.cc
 +++ b/ssl/ssl_key_share.cc
-@@ -289,6 +289,10 @@ constexpr NamedGroup kNamedGroups[] = {
-     {NID_X25519, SSL_GROUP_X25519, "X25519", "x25519"},
+@@ -384,6 +384,10 @@ constexpr NamedGroup kNamedGroups[] = {
      {NID_X25519Kyber768Draft00, SSL_GROUP_X25519_KYBER768_DRAFT00,
       "X25519Kyber768Draft00", ""},
+     {NID_X25519MLKEM768, SSL_GROUP_X25519_MLKEM768, "X25519MLKEM768", ""},
 +
 +    //unspport group but add them
 +    {NID_secp224r1, 256, "dhe2048", "ffdhe2048"},
@@ -716,10 +1131,10 @@ index 80317d898..1d829f520 100644
  
  }  // namespace
 diff --git a/ssl/ssl_lib.cc b/ssl/ssl_lib.cc
-index 58b68e675..a9bc96525 100644
+index c38a96bb4..f4d86c1f3 100644
 --- a/ssl/ssl_lib.cc
 +++ b/ssl/ssl_lib.cc
-@@ -686,6 +686,13 @@ SSL *SSL_new(SSL_CTX *ctx) {
+@@ -685,6 +685,13 @@ SSL *SSL_new(SSL_CTX *ctx) {
    ssl->config->ocsp_stapling_enabled = ctx->ocsp_stapling_enabled;
    ssl->config->handoff = ctx->handoff;
    ssl->quic_method = ctx->quic_method;
@@ -733,7 +1148,7 @@ index 58b68e675..a9bc96525 100644
  
    if (!ssl->method->ssl_new(ssl.get()) ||
        !ssl->ctx->x509_method->ssl_new(ssl->s3->hs.get())) {
-@@ -3353,7 +3360,6 @@ static int Configure(SSL_CTX *ctx) {
+@@ -3374,7 +3381,6 @@ static int Configure(SSL_CTX *ctx) {
  
  static int Configure(SSL *ssl) {
    ssl->config->tls13_cipher_policy = ssl_compliance_policy_wpa3_192_202304;
@@ -741,7 +1156,7 @@ index 58b68e675..a9bc96525 100644
    return SSL_set_min_proto_version(ssl, TLS1_2_VERSION) &&
           SSL_set_max_proto_version(ssl, TLS1_3_VERSION) &&
           SSL_set_strict_cipher_list(ssl, kTLS12Ciphers) &&
-@@ -3388,3 +3394,33 @@ int SSL_set_compliance_policy(SSL *ssl, enum ssl_compliance_policy_t policy) {
+@@ -3427,3 +3433,33 @@ int SSL_set_compliance_policy(SSL *ssl, enum ssl_compliance_policy_t policy) {
        return 0;
    }
  }
