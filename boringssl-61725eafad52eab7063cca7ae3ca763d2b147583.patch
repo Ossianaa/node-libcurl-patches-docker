@@ -24,6 +24,21 @@ index 60301885a..c2d80c70f 100644
  // ExtensionType values from RFC 6066
  #define TLSEXT_TYPE_server_name 0
  #define TLSEXT_TYPE_status_request 5
+diff --git a/ssl/encrypted_client_hello.cc b/ssl/encrypted_client_hello.cc
+index abdb27d15..4de0b27d9 100644
+--- a/ssl/encrypted_client_hello.cc
++++ b/ssl/encrypted_client_hello.cc
+@@ -718,9 +718,7 @@ static bool setup_ech_grease(SSL_HANDSHAKE *hs) {
+   }
+ 
+   const uint16_t kdf_id = EVP_HPKE_HKDF_SHA256;
+-  const bool has_aes_hw = hs->ssl->config->aes_hw_override
+-                              ? hs->ssl->config->aes_hw_override_value
+-                              : EVP_has_aes_hardware();
++  const bool has_aes_hw = true;//always use AES-128-GCM on chrome
+   const EVP_HPKE_AEAD *aead =
+       has_aes_hw ? EVP_hpke_aes_128_gcm() : EVP_hpke_chacha20_poly1305();
+   static_assert(ssl_grease_ech_config_id < sizeof(hs->grease_seed),
 diff --git a/ssl/extensions.cc b/ssl/extensions.cc
 index ce908118d..9a38d3c65 100644
 --- a/ssl/extensions.cc
