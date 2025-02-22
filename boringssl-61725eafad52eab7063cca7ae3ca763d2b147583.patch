@@ -40,7 +40,7 @@ index abdb27d15..4de0b27d9 100644
        has_aes_hw ? EVP_hpke_aes_128_gcm() : EVP_hpke_chacha20_poly1305();
    static_assert(ssl_grease_ech_config_id < sizeof(hs->grease_seed),
 diff --git a/ssl/extensions.cc b/ssl/extensions.cc
-index ce908118d..9a38d3c65 100644
+index ce908118d..de61c026e 100644
 --- a/ssl/extensions.cc
 +++ b/ssl/extensions.cc
 @@ -397,7 +397,7 @@ static const uint16_t kVerifySignatureAlgorithms[] = {
@@ -204,57 +204,34 @@ index ce908118d..9a38d3c65 100644
    return true;
  }
  
-@@ -2978,12 +2995,12 @@ static bool ext_alps_add_clienthello_impl(const SSL_HANDSHAKE *hs, CBB *out,
-   return CBB_flush(out_compressible);
- }
+@@ -2949,14 +2966,10 @@ static bool ext_alps_add_clienthello_impl(const SSL_HANDSHAKE *hs, CBB *out,
+       ssl->s3->initial_handshake_complete) {
+     return true;
+   }
+-
+-  if (use_new_codepoint != hs->config->alps_use_new_codepoint) {
+-    // Do nothing, we'll send the other codepoint.
+-    return true;
+-  }
++  hs->config->alps_use_new_codepoint = use_new_codepoint;
  
--static bool ext_alps_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
--                                     CBB *out_compressible,
--                                     ssl_client_hello_type_t type) {
--  return ext_alps_add_clienthello_impl(hs, out, out_compressible, type,
--                                       /*use_new_codepoint=*/true);
--}
-+//static bool ext_alps_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
-+//                                     CBB *out_compressible,
-+//                                     ssl_client_hello_type_t type) {
-+//  return ext_alps_add_clienthello_impl(hs, out, out_compressible, type,
-+//                                       /*use_new_codepoint=*/true);
-+//}
+   uint16_t extension_type = TLSEXT_TYPE_application_settings_old;
+-  if (hs->config->alps_use_new_codepoint) {
++  if (use_new_codepoint) {
+     extension_type = TLSEXT_TYPE_application_settings;
+   }
  
- static bool ext_alps_add_clienthello_old(const SSL_HANDSHAKE *hs, CBB *out,
-                                          CBB *out_compressible,
-@@ -3023,11 +3040,12 @@ static bool ext_alps_parse_serverhello_impl(SSL_HANDSHAKE *hs,
+@@ -3023,7 +3036,8 @@ static bool ext_alps_parse_serverhello_impl(SSL_HANDSHAKE *hs,
    return true;
  }
  
 -static bool ext_alps_parse_serverhello(SSL_HANDSHAKE *hs, uint8_t *out_alert,
--                                       CBS *contents) {
--  return ext_alps_parse_serverhello_impl(hs, out_alert, contents,
--                                         /*use_new_codepoint=*/true);
--}
-+//static bool ext_alps_parse_serverhello(SSL_HANDSHAKE *hs,
-+//                                       uint8_t *out_alert,
-+//                                       CBS *contents) {
-+//  return ext_alps_parse_serverhello_impl(hs, out_alert, contents,
-+//                                         /*use_new_codepoint=*/true);
-+//}
- 
- static bool ext_alps_parse_serverhello_old(SSL_HANDSHAKE *hs,
-                                            uint8_t *out_alert, CBS *contents) {
-@@ -3069,9 +3087,9 @@ static bool ext_alps_add_serverhello_impl(SSL_HANDSHAKE *hs, CBB *out,
-   return true;
- }
- 
--static bool ext_alps_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
--  return ext_alps_add_serverhello_impl(hs, out, /*use_new_codepoint=*/true);
--}
-+//static bool ext_alps_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
-+//  return ext_alps_add_serverhello_impl(hs, out, /*use_new_codepoint=*/true);
-+//}
- 
- static bool ext_alps_add_serverhello_old(SSL_HANDSHAKE *hs, CBB *out) {
-   return ext_alps_add_serverhello_impl(hs, out, /*use_new_codepoint=*/false);
-@@ -3133,194 +3151,223 @@ bool ssl_negotiate_alps(SSL_HANDSHAKE *hs, uint8_t *out_alert,
++static bool ext_alps_parse_serverhello(SSL_HANDSHAKE *hs,
++                                       uint8_t *out_alert,
+                                        CBS *contents) {
+   return ext_alps_parse_serverhello_impl(hs, out_alert, contents,
+                                          /*use_new_codepoint=*/true);
+@@ -3133,194 +3147,223 @@ bool ssl_negotiate_alps(SSL_HANDSHAKE *hs, uint8_t *out_alert,
    return true;
  }
  
@@ -638,14 +615,14 @@ index ce908118d..9a38d3c65 100644
 +    ext_delegated_credential_parse_clienthello,
 +    dont_add_serverhello,
 +  },
-+  //{
-+  //  TLSEXT_TYPE_application_settings,
-+  //  ext_alps_add_clienthello,
-+  //  ext_alps_parse_serverhello,
-+  //  // ALPS is negotiated late in |ssl_negotiate_alpn|.
-+  //  ignore_parse_clienthello,
-+  //  ext_alps_add_serverhello,
-+  //},
++  {
++    TLSEXT_TYPE_application_settings,
++    ext_alps_add_clienthello,
++    ext_alps_parse_serverhello,
++    // ALPS is negotiated late in |ssl_negotiate_alpn|.
++    ignore_parse_clienthello,
++    ext_alps_add_serverhello,
++  },
 +  {
 +    TLSEXT_TYPE_application_settings_old,
 +    ext_alps_add_clienthello_old,
@@ -664,7 +641,7 @@ index ce908118d..9a38d3c65 100644
  };
  
  #define kNumExtensions (sizeof(kExtensions) / sizeof(struct tls_extension))
-@@ -3334,6 +3381,12 @@ static_assert(kNumExtensions <=
+@@ -3334,6 +3377,12 @@ static_assert(kNumExtensions <=
  
  bool ssl_setup_extension_permutation(SSL_HANDSHAKE *hs) {
    if (!hs->config->permute_extensions) {
@@ -677,7 +654,7 @@ index ce908118d..9a38d3c65 100644
      return true;
    }
  
-@@ -3410,11 +3463,16 @@ static bool ssl_add_clienthello_tlsext_inner(SSL_HANDSHAKE *hs, CBB *out,
+@@ -3410,11 +3459,16 @@ static bool ssl_add_clienthello_tlsext_inner(SSL_HANDSHAKE *hs, CBB *out,
        return false;
      }
    }
@@ -696,7 +673,7 @@ index ce908118d..9a38d3c65 100644
      const size_t len_before = CBB_len(&extensions);
      const size_t len_compressed_before = CBB_len(compressed.get());
      if (!kExtensions[i].add_clienthello(hs, &extensions, compressed.get(),
-@@ -3471,20 +3529,18 @@ static bool ssl_add_clienthello_tlsext_inner(SSL_HANDSHAKE *hs, CBB *out,
+@@ -3471,20 +3525,18 @@ static bool ssl_add_clienthello_tlsext_inner(SSL_HANDSHAKE *hs, CBB *out,
        return false;
      }
    }
@@ -726,7 +703,7 @@ index ce908118d..9a38d3c65 100644
    return true;
  }
  
-@@ -3520,10 +3576,22 @@ bool ssl_add_clienthello_tlsext(SSL_HANDSHAKE *hs, CBB *out, CBB *out_encoded,
+@@ -3520,10 +3572,22 @@ bool ssl_add_clienthello_tlsext(SSL_HANDSHAKE *hs, CBB *out, CBB *out_encoded,
    }
  
    bool last_was_empty = false;
@@ -750,7 +727,7 @@ index ce908118d..9a38d3c65 100644
      const size_t len_before = CBB_len(&extensions);
      if (!kExtensions[i].add_clienthello(hs, &extensions, &extensions, type)) {
        OPENSSL_PUT_ERROR(SSL, SSL_R_ERROR_ADDING_EXTENSION);
-@@ -3596,16 +3664,19 @@ bool ssl_add_clienthello_tlsext(SSL_HANDSHAKE *hs, CBB *out, CBB *out_encoded,
+@@ -3596,16 +3660,19 @@ bool ssl_add_clienthello_tlsext(SSL_HANDSHAKE *hs, CBB *out, CBB *out_encoded,
      }
    }
  
