@@ -718,7 +718,7 @@ index dff26e6b4..9f88e5638 100644
  
  struct Names {
 diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
-index 9f9c8d136..81d3accb5 100644
+index 9f9c8d136..4e4591f34 100644
 --- a/lib/vtls/openssl.c
 +++ b/lib/vtls/openssl.c
 @@ -205,17 +205,17 @@
@@ -838,7 +838,7 @@ index 9f9c8d136..81d3accb5 100644
  
    SSL_CTX_set_options(backend->ctx, ctx_options);
  
-@@ -4817,6 +4851,28 @@ static void ossl_free_multi_ssl_backend_data(
+@@ -4817,6 +4851,26 @@ static void ossl_free_multi_ssl_backend_data(
  #endif /* HAVE_SSL_X509_STORE_SHARE */
  }
  
@@ -857,9 +857,7 @@ index 9f9c8d136..81d3accb5 100644
 +    }
 +    else {
 +        const uint8_t* ticket = NULL;
-+        size_t out_len2 = 0;
-+        SSL_SESSION_get0_ticket(ssl_session, &ticket, &out_len2);
-+        SSL_SESSION_get0_ticket(ssl_session, &out_ticket, &out_len);
++        SSL_SESSION_get0_ticket(ssl_session, &out_ticket, out_len);
 +    }
 +    return CURLE_OK;
 +}
