@@ -718,7 +718,7 @@ index dff26e6b4..9f88e5638 100644
  
  struct Names {
 diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
-index 9f9c8d136..b92787e82 100644
+index 9f9c8d136..42df67dc3 100644
 --- a/lib/vtls/openssl.c
 +++ b/lib/vtls/openssl.c
 @@ -205,17 +205,17 @@
@@ -838,25 +838,26 @@ index 9f9c8d136..b92787e82 100644
  
    SSL_CTX_set_options(backend->ctx, ctx_options);
  
-@@ -4817,6 +4851,26 @@ static void ossl_free_multi_ssl_backend_data(
+@@ -4817,6 +4851,27 @@ static void ossl_free_multi_ssl_backend_data(
  #endif /* HAVE_SSL_X509_STORE_SHARE */
  }
  
 +CURLcode Curl_ossl_session_get_ticket(struct Curl_easy* data, const uint8_t** out_ticket, size_t* out_len)
 +{
-+    SSL* ssl = (SSL*)Curl_ssl_get_internals(data, FIRSTSOCKET, CURLINFO_TLS_SSL_PTR, 0);
++    SSL* ssl;
++    SSL_SESSION* ssl_session;
++    ssl = (SSL*)Curl_ssl_get_internals(data, FIRSTSOCKET, CURLINFO_TLS_SSL_PTR, 0);
 +    if (!ssl)
 +    {
 +        return CURLE_BAD_FUNCTION_ARGUMENT;
 +    }
-+    SSL_SESSION* ssl_session = SSL_get_session(ssl);
++    ssl_session = SSL_get_session(ssl);
 +    if (!SSL_SESSION_has_ticket(ssl_session))
 +    {
 +        out_ticket = NULL;
 +        out_len = 0;
 +    }
 +    else {
-+        const uint8_t* ticket = NULL;
 +        SSL_SESSION_get0_ticket(ssl_session, out_ticket, out_len);
 +    }
 +    return CURLE_OK;
