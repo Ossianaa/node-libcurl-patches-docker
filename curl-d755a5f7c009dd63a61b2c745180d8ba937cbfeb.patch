@@ -867,14 +867,14 @@ index 9f9c8d136..42df67dc3 100644
    { CURLSSLBACKEND_OPENSSL, "openssl" }, /* info */
  
 diff --git a/lib/vtls/openssl.h b/lib/vtls/openssl.h
-index 950faab88..180a9a781 100644
+index 950faab88..df2d4dc37 100644
 --- a/lib/vtls/openssl.h
 +++ b/lib/vtls/openssl.h
 @@ -65,5 +65,7 @@ CURLcode Curl_ssl_setup_x509_store(struct Curl_cfilter *cf,
                                     struct Curl_easy *data,
                                     SSL_CTX *ssl_ctx);
  
-+CURLcode Curl_ossl_session_get_ticket(struct Curl_easy* data);
++CURLcode Curl_ossl_session_get_ticket(struct Curl_easy* data, const uint8_t** out_ticket, size_t* out_len);
 +
  #endif /* USE_OPENSSL */
  #endif /* HEADER_CURL_SSLUSE_H */
