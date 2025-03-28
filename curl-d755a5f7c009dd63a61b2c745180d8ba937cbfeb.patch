@@ -718,7 +718,7 @@ index dff26e6b4..9f88e5638 100644
  
  struct Names {
 diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
-index 9f9c8d136..4e4591f34 100644
+index 9f9c8d136..b92787e82 100644
 --- a/lib/vtls/openssl.c
 +++ b/lib/vtls/openssl.c
 @@ -205,17 +205,17 @@
@@ -857,7 +857,7 @@ index 9f9c8d136..4e4591f34 100644
 +    }
 +    else {
 +        const uint8_t* ticket = NULL;
-+        SSL_SESSION_get0_ticket(ssl_session, &out_ticket, out_len);
++        SSL_SESSION_get0_ticket(ssl_session, out_ticket, out_len);
 +    }
 +    return CURLE_OK;
 +}
