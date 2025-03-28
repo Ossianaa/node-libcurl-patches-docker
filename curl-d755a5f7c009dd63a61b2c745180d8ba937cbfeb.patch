@@ -25,7 +25,7 @@ index 1b19c681d..ae12c4c87 100644
    if(WIN32)
      option(USE_WIN32_LDAP "Use Windows LDAP implementation" ON)
 diff --git a/include/curl/curl.h b/include/curl/curl.h
-index bf71d82fb..46c92f380 100644
+index bf71d82fb..789c1d5a9 100644
 --- a/include/curl/curl.h
 +++ b/include/curl/curl.h
 @@ -2209,7 +2209,13 @@ typedef enum {
@@ -43,6 +43,16 @@ index bf71d82fb..46c92f380 100644
    CURLOPT_LASTENTRY /* the last unused */
  } CURLoption;
  
+@@ -2941,7 +2947,8 @@ typedef enum {
+   CURLINFO_CAPATH           = CURLINFO_STRING + 62,
+   CURLINFO_XFER_ID          = CURLINFO_OFF_T + 63,
+   CURLINFO_CONN_ID          = CURLINFO_OFF_T + 64,
+-  CURLINFO_LASTONE          = 64
++  CURLINFO_SSL_SEESION_TICKET = CURLINFO_STRING + 65,
++  CURLINFO_LASTONE          = 65
+ } CURLINFO;
+ 
+ /* CURLINFO_RESPONSE_CODE is the new name for the option previously known as
 diff --git a/lib/cf-h2-proxy.c b/lib/cf-h2-proxy.c
 index dbc895d26..a5058560f 100644
 --- a/lib/cf-h2-proxy.c
@@ -135,11 +145,86 @@ index e69c658b0..e26d55e62 100644
 +  return ((CURLOPT_LASTENTRY%10000) != (329 + 1));
  }
  #endif
+diff --git a/lib/getinfo.c b/lib/getinfo.c
+index f1574e097..3489f95d5 100644
+--- a/lib/getinfo.c
++++ b/lib/getinfo.c
+@@ -180,7 +180,15 @@ static CURLcode getinfo_char(struct Curl_easy *data, CURLINFO info,
+     *param_charp = NULL;
+ #endif
+     break;
+-
++  case CURLINFO_SSL_SEESION_TICKET:
++  {
++      const unsigned char* tick = NULL;
++      size_t tick_len = 0;
++      Curl_ssl_session_get_ticket(data, &tick, &tick_len);
++      printf("ticket length: %zu\n", tick_len);
++      *param_charp = NULL;
++  }
++    break;
+   default:
+     return CURLE_UNKNOWN_OPTION;
+   }
 diff --git a/lib/http.c b/lib/http.c
-index 40ef70df5..ffcc9068b 100644
+index 40ef70df5..891670727 100644
 --- a/lib/http.c
 +++ b/lib/http.c
-@@ -4869,12 +4869,33 @@ static bool h2_non_field(const char *name, size_t namelen)
+@@ -1950,6 +1950,7 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
+   h[0] = data->set.headers;
+ #endif
+ 
++  char* priority_header = NULL;
+   /* loop through one or two lists */
+   for(i = 0; i < numlists; i++) {
+     headers = h[i];
+@@ -2035,6 +2036,11 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
+                      other hosts */
+                   !Curl_auth_allowed_to_host(data))
+             ;
++          else if ((checkprefix("priority:", compare)
++              /* always append latest*/))
++          {
++              priority_header = compare;
++          }
+           else {
+ #ifdef USE_HYPER
+             result = Curl_hyper_header(data, req, compare);
+@@ -2052,7 +2058,16 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
+     }
+   }
+ 
+-  return CURLE_OK;
++
++  CURLcode result = CURLE_OK;
++  result = Curl_http_cookies(data, conn, req);
++  if (result)
++      return result;
++  if (priority_header)
++  {
++      result = Curl_dyn_addf(req, "%s\r\n", priority_header);
++  }
++  return result;
+ }
+ 
+ #ifndef CURL_DISABLE_PARSEDATE
+@@ -3376,7 +3391,6 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
+     }
+   }
+ 
+-  result = Curl_http_cookies(data, conn, &req);
+ #ifdef USE_WEBSOCKETS
+   if(!result && conn->handler->protocol&(CURLPROTO_WS|CURLPROTO_WSS))
+     result = Curl_ws_request(data, &req);
+@@ -3385,7 +3399,6 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
+     result = Curl_add_timecondition(data, &req);
+   if(!result)
+     result = Curl_add_custom_headers(data, FALSE, &req);
+-
+   if(!result) {
+     http->postdata = NULL;  /* nothing to post at this point */
+     if((httpreq == HTTPREQ_GET) ||
+@@ -4869,12 +4882,33 @@ static bool h2_non_field(const char *name, size_t namelen)
    return FALSE;
  }
  
@@ -173,7 +258,7 @@ index 40ef70df5..ffcc9068b 100644
    CURLcode result;
  
    DEBUGASSERT(req);
-@@ -4908,25 +4929,44 @@ CURLcode Curl_http_req_to_h2(struct dynhds *h2_headers,
+@@ -4908,25 +4942,44 @@ CURLcode Curl_http_req_to_h2(struct dynhds *h2_headers,
  
    Curl_dynhds_reset(h2_headers);
    Curl_dynhds_set_opts(h2_headers, DYNHDS_OPT_LOWERCASE);
@@ -524,7 +609,7 @@ index c8b059498..3583efbb0 100644
    case HTTPREQ_POST:
    case HTTPREQ_POST_FORM:
 diff --git a/lib/setopt.c b/lib/setopt.c
-index 0d399adfe..fd06235bb 100644
+index 0d399adfe..c3d04654d 100644
 --- a/lib/setopt.c
 +++ b/lib/setopt.c
 @@ -3170,6 +3170,37 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
@@ -560,11 +645,25 @@ index 0d399adfe..fd06235bb 100644
 +      return CURLE_BAD_FUNCTION_ARGUMENT;
 +    data->set.http2_stream_id = arg;
 +    break;
-+
++    
 +#endif
    default:
      /* unknown tag and its companion, just ignore: */
      result = CURLE_UNKNOWN_OPTION;
+diff --git a/lib/setup-vms.h b/lib/setup-vms.h
+index 645cc1a9c..a5076cfd8 100644
+--- a/lib/setup-vms.h
++++ b/lib/setup-vms.h
+@@ -285,6 +285,9 @@ static struct passwd *vms_getpwuid(uid_t uid)
+ #define SSL_CTX_use_certificate SSL_CTX_USE_CERTIFICATE
+ #define SSL_CTX_use_certificate_file SSL_CTX_USE_CERTIFICATE_FILE
+ #define SSL_SESSION_free SSL_SESSION_FREE
++#define SSL_SESSION_has_ticket SSL_SESSION_HAS_TICKET
++#define SSL_SESSION_get0_ticket SSL_SESSION_GET0_TICKET
++#define SSL_SESSION_set_ticket SSL_SESSION_SET_TICKET
+ #define SSL_connect SSL_CONNECT
+ #define SSL_free SSL_FREE
+ #define SSL_get1_session SSL_GET1_SESSION
 diff --git a/lib/url.c b/lib/url.c
 index 61dad442d..166cc6f8a 100644
 --- a/lib/url.c
@@ -619,7 +718,7 @@ index dff26e6b4..9f88e5638 100644
  
  struct Names {
 diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
-index 9f9c8d136..8ec355834 100644
+index 9f9c8d136..81d3accb5 100644
 --- a/lib/vtls/openssl.c
 +++ b/lib/vtls/openssl.c
 @@ -205,17 +205,17 @@
@@ -651,7 +750,15 @@ index 9f9c8d136..8ec355834 100644
  /*
   * Whether SSL_CTX_set1_curves_list is available.
   * OpenSSL: supported since 1.0.2, see
-@@ -3437,6 +3437,32 @@ CURLcode Curl_ssl_setup_x509_store(struct Curl_cfilter *cf,
+@@ -2937,7 +2937,6 @@ static int ossl_new_session_cb(SSL *ssl, SSL_SESSION *ssl_sessionid)
+   /* The sockindex has been stored as a pointer to an array element */
+   if(!cf || !data)
+     return 0;
+-
+   isproxy = Curl_ssl_cf_is_proxy(cf);
+ 
+   config = Curl_ssl_cf_get_config(cf, data);
+@@ -3437,6 +3436,32 @@ CURLcode Curl_ssl_setup_x509_store(struct Curl_cfilter *cf,
  }
  #endif /* HAVE_SSL_X509_STORE_SHARE */
  
@@ -684,7 +791,7 @@ index 9f9c8d136..8ec355834 100644
  static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
                                     struct Curl_easy *data)
  {
-@@ -3514,7 +3540,9 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
+@@ -3514,7 +3539,9 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
      ossl_close(cf, data);
    }
    backend->ctx = SSL_CTX_new(req_method);
@@ -695,7 +802,7 @@ index 9f9c8d136..8ec355834 100644
    if(!backend->ctx) {
      failf(data, "SSL: couldn't create a context: %s",
            ossl_strerror(ERR_peek_error(), error_buffer, sizeof(error_buffer)));
-@@ -3532,7 +3560,7 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
+@@ -3532,7 +3559,7 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
      SSL_CTX_set_msg_callback_arg(backend->ctx, cf);
    }
  #endif
@@ -704,7 +811,7 @@ index 9f9c8d136..8ec355834 100644
    /* OpenSSL contains code to work around lots of bugs and flaws in various
       SSL-implementations. SSL_CTX_set_options() is used to enabled those
       work-arounds. The man page for this option states that SSL_OP_ALL enables
-@@ -3571,9 +3599,9 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
+@@ -3571,9 +3598,9 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
  
    ctx_options = SSL_OP_ALL;
  
@@ -717,7 +824,7 @@ index 9f9c8d136..8ec355834 100644
  
  #ifdef SSL_OP_NO_COMPRESSION
    ctx_options |= SSL_OP_NO_COMPRESSION;
-@@ -3621,6 +3649,13 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
+@@ -3621,6 +3648,13 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
      failf(data, "Unrecognized parameter passed via CURLOPT_SSLVERSION");
      return CURLE_SSL_CONNECT_ERROR;
    }
@@ -731,8 +838,49 @@ index 9f9c8d136..8ec355834 100644
  
    SSL_CTX_set_options(backend->ctx, ctx_options);
  
+@@ -4817,6 +4851,28 @@ static void ossl_free_multi_ssl_backend_data(
+ #endif /* HAVE_SSL_X509_STORE_SHARE */
+ }
+ 
++CURLcode Curl_ossl_session_get_ticket(struct Curl_easy* data, const uint8_t** out_ticket, size_t* out_len)
++{
++    SSL* ssl = (SSL*)Curl_ssl_get_internals(data, FIRSTSOCKET, CURLINFO_TLS_SSL_PTR, 0);
++    if (!ssl)
++    {
++        return CURLE_BAD_FUNCTION_ARGUMENT;
++    }
++    SSL_SESSION* ssl_session = SSL_get_session(ssl);
++    if (!SSL_SESSION_has_ticket(ssl_session))
++    {
++        out_ticket = NULL;
++        out_len = 0;
++    }
++    else {
++        const uint8_t* ticket = NULL;
++        size_t out_len2 = 0;
++        SSL_SESSION_get0_ticket(ssl_session, &ticket, &out_len2);
++        SSL_SESSION_get0_ticket(ssl_session, &out_ticket, &out_len);
++    }
++    return CURLE_OK;
++}
++
+ const struct Curl_ssl Curl_ssl_openssl = {
+   { CURLSSLBACKEND_OPENSSL, "openssl" }, /* info */
+ 
+diff --git a/lib/vtls/openssl.h b/lib/vtls/openssl.h
+index 950faab88..180a9a781 100644
+--- a/lib/vtls/openssl.h
++++ b/lib/vtls/openssl.h
+@@ -65,5 +65,7 @@ CURLcode Curl_ssl_setup_x509_store(struct Curl_cfilter *cf,
+                                    struct Curl_easy *data,
+                                    SSL_CTX *ssl_ctx);
+ 
++CURLcode Curl_ossl_session_get_ticket(struct Curl_easy* data);
++
+ #endif /* USE_OPENSSL */
+ #endif /* HEADER_CURL_SSLUSE_H */
 diff --git a/lib/vtls/vtls.c b/lib/vtls/vtls.c
-index 494b660a9..5ad277a9a 100644
+index 494b660a9..e880293c3 100644
 --- a/lib/vtls/vtls.c
 +++ b/lib/vtls/vtls.c
 @@ -210,6 +210,7 @@ Curl_clone_primary_ssl_config(struct ssl_primary_config *source,
@@ -751,6 +899,38 @@ index 494b660a9..5ad277a9a 100644
    Curl_safefree(sslc->pinned_key);
    Curl_safefree(sslc->cert_blob);
    Curl_safefree(sslc->ca_info_blob);
+@@ -2045,4 +2047,17 @@ out:
+   return CURLE_OK;
+ }
+ 
++CURLcode Curl_ssl_session_get_ticket(struct Curl_easy* data,
++    const uint8_t** out_ticket, size_t* out_len)
++{
++#ifdef USE_OPENSSL
++    
++    return Curl_ossl_session_get_ticket(data, out_ticket, out_len);
++#else
++#error "Missing struct Curl_ssl for selected SSL backend"
++#endif // USE_OPENSSL
++
++}
++
++
+ #endif /* USE_SSL */
+diff --git a/lib/vtls/vtls_int.h b/lib/vtls/vtls_int.h
+index a6e4544a8..30851bb36 100644
+--- a/lib/vtls/vtls_int.h
++++ b/lib/vtls/vtls_int.h
+@@ -215,6 +215,9 @@ CURLcode Curl_ssl_addsessionid(struct Curl_cfilter *cf,
+                                size_t idsize,
+                                bool *added);
+ 
++CURLcode Curl_ssl_session_get_ticket(struct Curl_easy* data,
++    const uint8_t** out_ticket, size_t* out_len);
++
+ #include "openssl.h"        /* OpenSSL versions */
+ #include "gtls.h"           /* GnuTLS versions */
+ #include "wolfssl.h"        /* wolfSSL versions */
 diff --git a/lib/ws.c b/lib/ws.c
 index 3c1964b86..54f95351f 100644
 --- a/lib/ws.c
