@@ -167,19 +167,10 @@ index f1574e097..3489f95d5 100644
      return CURLE_UNKNOWN_OPTION;
    }
 diff --git a/lib/http.c b/lib/http.c
-index 40ef70df5..52af41f7c 100644
+index 40ef70df5..37629a91a 100644
 --- a/lib/http.c
 +++ b/lib/http.c
-@@ -1950,6 +1950,8 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
-   h[0] = data->set.headers;
- #endif
- 
-+  char* priority_header = NULL;
-+  bool is_headers_include_cookie = false;
-   /* loop through one or two lists */
-   for(i = 0; i < numlists; i++) {
-     headers = h[i];
-@@ -2029,12 +2031,29 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
+@@ -2029,12 +2029,30 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
                    checkprefix("Transfer-Encoding:", compare))
              /* HTTP/2 doesn't support chunked requests */
              ;
@@ -197,42 +188,30 @@ index 40ef70df5..52af41f7c 100644
 +#ifdef USE_HYPER
 +                  result = Curl_hyper_header(data, req, compare);
 +#else
-+                  result = Curl_dyn_addf(req, "%s\r\n", compare);
++                  if (strncasecompare("Cookie:", compare, strlen(compare)))
++                  {
++                      /* if set empty cookie, auto set internal cookies*/
++                      result = Curl_http_cookies(data, conn, req);
++                  }
++                  else {
++                      result = Curl_dyn_addf(req, "%s\r\n", compare);
++                  }
 +#endif
-+                  is_headers_include_cookie = true;
 +              }
 +          }
 +          
-+          else if ((checkprefix("priority:", compare)
-+              /* always append latest*/))
-+          {
-+              priority_header = compare;
-+          }
            else {
  #ifdef USE_HYPER
              result = Curl_hyper_header(data, req, compare);
-@@ -2052,7 +2071,19 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
+@@ -2051,7 +2069,6 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
+       headers = headers->next;
      }
    }
- 
--  return CURLE_OK;
-+
-+  CURLcode result = CURLE_OK;
-+  if (!is_headers_include_cookie)
-+  {
-+      result = Curl_http_cookies(data, conn, req);
-+      if (result)
-+          return result;
-+  }
-+  if (priority_header)
-+  {
-+      result = Curl_dyn_addf(req, "%s\r\n", priority_header);
-+  }
-+  return result;
+-
+   return CURLE_OK;
  }
  
- #ifndef CURL_DISABLE_PARSEDATE
-@@ -3376,7 +3407,6 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
+@@ -3376,7 +3393,6 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
      }
    }
  
@@ -240,7 +219,7 @@ index 40ef70df5..52af41f7c 100644
  #ifdef USE_WEBSOCKETS
    if(!result && conn->handler->protocol&(CURLPROTO_WS|CURLPROTO_WSS))
      result = Curl_ws_request(data, &req);
-@@ -3385,7 +3415,6 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
+@@ -3385,7 +3401,6 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
      result = Curl_add_timecondition(data, &req);
    if(!result)
      result = Curl_add_custom_headers(data, FALSE, &req);
@@ -248,7 +227,7 @@ index 40ef70df5..52af41f7c 100644
    if(!result) {
      http->postdata = NULL;  /* nothing to post at this point */
      if((httpreq == HTTPREQ_GET) ||
-@@ -4869,12 +4898,33 @@ static bool h2_non_field(const char *name, size_t namelen)
+@@ -4869,12 +4884,33 @@ static bool h2_non_field(const char *name, size_t namelen)
    return FALSE;
  }
  
@@ -282,7 +261,7 @@ index 40ef70df5..52af41f7c 100644
    CURLcode result;
  
    DEBUGASSERT(req);
-@@ -4908,25 +4958,44 @@ CURLcode Curl_http_req_to_h2(struct dynhds *h2_headers,
+@@ -4908,25 +4944,44 @@ CURLcode Curl_http_req_to_h2(struct dynhds *h2_headers,
  
    Curl_dynhds_reset(h2_headers);
    Curl_dynhds_set_opts(h2_headers, DYNHDS_OPT_LOWERCASE);
