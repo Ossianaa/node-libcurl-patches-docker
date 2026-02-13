@@ -659,8 +659,12 @@ index daf643572..dca1ee323 100644
    if (!hs->config->permute_extensions) {
 +      if (!hs->ssl->ctx->extension_permutation.empty()) {
 +          Array<uint8_t> permutation;
-+          (void)permutation.Init(hs->ssl->ctx->extension_permutation.size());
-+          (void)permutation.CopyFrom(hs->ssl->ctx->extension_permutation);
++          if (!permutation.Init(hs->ssl->ctx->extension_permutation.size())) {
++              return false;
++          }
++          if (!permutation.CopyFrom(hs->ssl->ctx->extension_permutation)) {
++              return false;
++          }
 +          hs->extension_permutation = std::move(permutation);
 +      }
      return true;
