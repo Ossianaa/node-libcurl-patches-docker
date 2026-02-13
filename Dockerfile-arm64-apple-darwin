@@ -124,6 +124,8 @@ RUN cd curl-${CURL_COMMIT} && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=./installed \
       -DCMAKE_SYSTEM_NAME="Darwin" \
+      -DBUILD_TESTING=OFF \
+      -DBENCHMARK_ENABLE_TESTING=OFF \
       -DBUILD_SHARED_LIBS=0 \
       -DCMAKE_BUILD_TYPE=Release \
       -DOPENSSL_ROOT_DIR=/boringssl-${BORINGSSL_COMMIT}/build/ \

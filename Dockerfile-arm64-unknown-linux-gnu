@@ -3,19 +3,19 @@ FROM ubuntu:22.04 as stage1
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        g++-aarch64-linux-gnu \
-        gawk \
-        git \
-        make \
-        build-essential \
-        curl \
-        golang \
-        ninja-build \
-        python3-pip && \
+    g++-aarch64-linux-gnu \
+    gawk \
+    git \
+    make \
+    build-essential \
+    curl \
+    golang \
+    ninja-build \
+    python3-pip && \
     rm -rf \
-        /var/lib/apt/lists/* \
-        /var/cache/apt/pkgcache.bin \
-        /var/cache/apt/srcpkgcache.bin
+    /var/lib/apt/lists/* \
+    /var/cache/apt/pkgcache.bin \
+    /var/cache/apt/srcpkgcache.bin
 
 ARG CMAKE_VERSION=3.22.6
 
@@ -104,29 +104,31 @@ RUN cd curl-${CURL_COMMIT} && \
 RUN cd curl-${CURL_COMMIT} && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=./installed \
-      -DBUILD_SHARED_LIBS=0 \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DOPENSSL_ROOT_DIR=/boringssl-${BORINGSSL_COMMIT}/build/ \
-      -DZLIB_INCLUDE_DIR=/zlib-${ZLIB_COMMIT}/build/installed/include \
-      -DZLIB_LIBRARY=/zlib-${ZLIB_COMMIT}/build/installed/lib/libz.a \
-      -DUSE_NGHTTP2=1 \
-      -DNGHTTP2_INCLUDE_DIR=/nghttp2-${NGHTTP2_COMMIT}/build/installed/include \
-      -DNGHTTP2_LIBRARY=/nghttp2-${NGHTTP2_COMMIT}/build/installed/lib/libnghttp2.a \
-      -DUSE_QUICHE=1 \
-      -DQUICHE_INCLUDE_DIR=/quiche \
-      -DQUICHE_LIBRARY=/quiche/libquiche.a \
-      -DCURL_ZSTD=1 \
-      -DZstd_INCLUDE_DIR=/zstd-${ZSTD_COMMIT}/build/installed/include \
-      -DZstd_LIBRARY=/zstd-${ZSTD_COMMIT}/build/installed/lib/libzstd.a \
-      -DCURL_BROTLI=1 \
-      -DBROTLI_INCLUDE_DIR=/brotli-${BROTLI_COMMIT}/build/installed/include \
-      -DBROTLIDEC_LIBRARY=/brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlidec.a \
-      -DBROTLICOMMON_LIBRARY=/brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlicommon.a \
-      -DENABLE_WEBSOCKETS=1 \
-      -DBUILD_CURL_EXE=0 \
-      -DCMAKE_POSITION_INDEPENDENT_CODE=1 \
-      CFLAGS="-I/boringssl-${BORINGSSL_COMMIT}/build" \
-      .. && \
+    -DBUILD_SHARED_LIBS=0 \
+    -DBUILD_TESTING=OFF \
+    -DBENCHMARK_ENABLE_TESTING=OFF \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DOPENSSL_ROOT_DIR=/boringssl-${BORINGSSL_COMMIT}/build/ \
+    -DZLIB_INCLUDE_DIR=/zlib-${ZLIB_COMMIT}/build/installed/include \
+    -DZLIB_LIBRARY=/zlib-${ZLIB_COMMIT}/build/installed/lib/libz.a \
+    -DUSE_NGHTTP2=1 \
+    -DNGHTTP2_INCLUDE_DIR=/nghttp2-${NGHTTP2_COMMIT}/build/installed/include \
+    -DNGHTTP2_LIBRARY=/nghttp2-${NGHTTP2_COMMIT}/build/installed/lib/libnghttp2.a \
+    -DUSE_QUICHE=1 \
+    -DQUICHE_INCLUDE_DIR=/quiche \
+    -DQUICHE_LIBRARY=/quiche/libquiche.a \
+    -DCURL_ZSTD=1 \
+    -DZstd_INCLUDE_DIR=/zstd-${ZSTD_COMMIT}/build/installed/include \
+    -DZstd_LIBRARY=/zstd-${ZSTD_COMMIT}/build/installed/lib/libzstd.a \
+    -DCURL_BROTLI=1 \
+    -DBROTLI_INCLUDE_DIR=/brotli-${BROTLI_COMMIT}/build/installed/include \
+    -DBROTLIDEC_LIBRARY=/brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlidec.a \
+    -DBROTLICOMMON_LIBRARY=/brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlicommon.a \
+    -DENABLE_WEBSOCKETS=1 \
+    -DBUILD_CURL_EXE=0 \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=1 \
+    CFLAGS="-I/boringssl-${BORINGSSL_COMMIT}/build" \
+    .. && \
     make libcurl_static && make install
 
 RUN mkdir dist && \

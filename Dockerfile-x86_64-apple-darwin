@@ -3,30 +3,30 @@ ENV PATH /usr/local/osxcross/bin:${PATH}
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates \
-        clang \
-        clang-tidy \
-        file \
-        gawk \
-        git \
-        libgmp-dev \
-        libmpc-dev \
-        libmpfr-dev \
-        libssl-dev \
-        libxml2-dev \
-        llvm \
-        lzma-dev \
-        make \
-        ninja-build \
-        patch \
-        python3-pip \
-        wget \
-        xz-utils \
-        zlib1g-dev \
-        curl \
-        golang \
-        ninja-build \
-        && \
+    ca-certificates \
+    clang \
+    clang-tidy \
+    file \
+    gawk \
+    git \
+    libgmp-dev \
+    libmpc-dev \
+    libmpfr-dev \
+    libssl-dev \
+    libxml2-dev \
+    llvm \
+    lzma-dev \
+    make \
+    ninja-build \
+    patch \
+    python3-pip \
+    wget \
+    xz-utils \
+    zlib1g-dev \
+    curl \
+    golang \
+    ninja-build \
+    && \
     rm -rf /var/lib/apt/lists/*
 
 ARG CMAKE_VERSION=3.22.6
@@ -42,7 +42,7 @@ RUN pip3 install conan==1.62.0 && \
     cd osxcross && \
     echo 'cd4f08a75577145b8f05245a2975f7c81401d75e9535dcffbb879ee1deefcbf4  tarballs/MacOSX11.3.sdk.tar.xz' | shasum -c && \
     mkdir -p /usr/local/osxcross && \
-	env TARGET_DIR=/usr/local/osxcross UNATTENDED=1 ./build.sh && ./build_compiler_rt.sh && \
+    env TARGET_DIR=/usr/local/osxcross UNATTENDED=1 ./build.sh && ./build_compiler_rt.sh && \
     cd / && \
     rm -rf osxcross
 ENV CXX "x86_64-apple-darwin20.4-clang++"
@@ -124,32 +124,34 @@ RUN cd curl-${CURL_COMMIT} && \
 RUN cd curl-${CURL_COMMIT} && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=./installed \
-      -DCMAKE_SYSTEM_NAME="Darwin" \
-      -DBUILD_SHARED_LIBS=0 \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DOPENSSL_ROOT_DIR=/boringssl-${BORINGSSL_COMMIT}/build/ \
-      -DZLIB_INCLUDE_DIR=/zlib-${ZLIB_COMMIT}/build/installed/include \
-      -DZLIB_LIBRARY=/zlib-${ZLIB_COMMIT}/build/installed/lib/libz.a \
-      -DUSE_NGHTTP2=1 \
-      -DNGHTTP2_INCLUDE_DIR=/nghttp2-${NGHTTP2_COMMIT}/build/installed/include \
-      -DNGHTTP2_LIBRARY=/nghttp2-${NGHTTP2_COMMIT}/build/installed/lib/libnghttp2.a \
-      -DUSE_QUICHE=1 \
-      -DQUICHE_INCLUDE_DIR=/quiche \
-      -DQUICHE_LIBRARY=/quiche/libquiche.a \
-      -DCURL_ZSTD=1 \
-      -DZstd_INCLUDE_DIR=/zstd-${ZSTD_COMMIT}/build/installed/include \
-      -DZstd_LIBRARY=/zstd-${ZSTD_COMMIT}/build/installed/lib/libzstd.a \
-      -DCURL_BROTLI=1 \
-      -DBROTLI_INCLUDE_DIR=/brotli-${BROTLI_COMMIT}/build/installed/include \
-      -DBROTLIDEC_LIBRARY=/brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlidec.a \
-      -DBROTLICOMMON_LIBRARY=/brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlicommon.a \
-      -DENABLE_WEBSOCKETS=1 \
-      -DBUILD_CURL_EXE=0 \
-      -DCMAKE_POSITION_INDEPENDENT_CODE=1 \
-      -DSYSTEMCONFIGURATION_FRAMEWORK="/usr/local/Frameworks" \
-      -DCOREFOUNDATION_FRAMEWORK="/usr/local/osxcross/SDK/MacOSX11.3.sdk/System/Library/Frameworks/CoreFoundation.framework" \
-      -DCORESERVICES_FRAMEWORK="/usr/local/osxcross/SDK/MacOSX11.3.sdk/System/Library/Frameworks/CoreServices.framework" \
-      .. && \
+    -DCMAKE_SYSTEM_NAME="Darwin" \
+    -DBUILD_SHARED_LIBS=0 \
+    -DBUILD_TESTING=OFF \
+    -DBENCHMARK_ENABLE_TESTING=OFF \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DOPENSSL_ROOT_DIR=/boringssl-${BORINGSSL_COMMIT}/build/ \
+    -DZLIB_INCLUDE_DIR=/zlib-${ZLIB_COMMIT}/build/installed/include \
+    -DZLIB_LIBRARY=/zlib-${ZLIB_COMMIT}/build/installed/lib/libz.a \
+    -DUSE_NGHTTP2=1 \
+    -DNGHTTP2_INCLUDE_DIR=/nghttp2-${NGHTTP2_COMMIT}/build/installed/include \
+    -DNGHTTP2_LIBRARY=/nghttp2-${NGHTTP2_COMMIT}/build/installed/lib/libnghttp2.a \
+    -DUSE_QUICHE=1 \
+    -DQUICHE_INCLUDE_DIR=/quiche \
+    -DQUICHE_LIBRARY=/quiche/libquiche.a \
+    -DCURL_ZSTD=1 \
+    -DZstd_INCLUDE_DIR=/zstd-${ZSTD_COMMIT}/build/installed/include \
+    -DZstd_LIBRARY=/zstd-${ZSTD_COMMIT}/build/installed/lib/libzstd.a \
+    -DCURL_BROTLI=1 \
+    -DBROTLI_INCLUDE_DIR=/brotli-${BROTLI_COMMIT}/build/installed/include \
+    -DBROTLIDEC_LIBRARY=/brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlidec.a \
+    -DBROTLICOMMON_LIBRARY=/brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlicommon.a \
+    -DENABLE_WEBSOCKETS=1 \
+    -DBUILD_CURL_EXE=0 \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=1 \
+    -DSYSTEMCONFIGURATION_FRAMEWORK="/usr/local/Frameworks" \
+    -DCOREFOUNDATION_FRAMEWORK="/usr/local/osxcross/SDK/MacOSX11.3.sdk/System/Library/Frameworks/CoreFoundation.framework" \
+    -DCORESERVICES_FRAMEWORK="/usr/local/osxcross/SDK/MacOSX11.3.sdk/System/Library/Frameworks/CoreServices.framework" \
+    .. && \
     make libcurl_static && make install
 
 RUN mkdir dist && \
