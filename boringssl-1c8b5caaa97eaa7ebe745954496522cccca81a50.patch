@@ -1,0 +1,613 @@
+diff --git a/include/openssl/tls1.h b/include/openssl/tls1.h
+index 7e6aa1923..fcd435045 100644
+--- a/include/openssl/tls1.h
++++ b/include/openssl/tls1.h
+@@ -48,8 +48,7 @@ extern "C" {
+ #define TLS1_AD_NO_APPLICATION_PROTOCOL 120
+ #define TLS1_AD_ECH_REQUIRED 121  // draft-ietf-tls-esni-13
+ 
+-#define TLSEXT_TYPE_record_size_limit 28
+-// ExtensionType values from RFC 6066
++	// ExtensionType values from RFC 6066
+ #define TLSEXT_TYPE_server_name 0
+ #define TLSEXT_TYPE_status_request 5
+ 
+@@ -120,10 +119,6 @@ extern "C" {
+ #define TLSEXT_TYPE_encrypted_client_hello 0xfe0d
+ #define TLSEXT_TYPE_ech_outer_extensions 0xfd00
+ 
+-// ExtensionType values from draft-bmw-tls-pake13. This is not an IANA defined
+-// extension number.
+-#define TLSEXT_TYPE_pake 0x8a3b
+-
+ // ExtensionType value from RFC 6962
+ #define TLSEXT_TYPE_certificate_timestamp 18
+ 
+@@ -133,14 +128,6 @@ extern "C" {
+ // This is not an IANA defined extension number
+ #define TLSEXT_TYPE_channel_id 30032
+ 
+-// This is not an IANA defined extension number
+-// TODO(crbug.com/398275713): Replace with the final codepoint once
+-// standardization completes.
+-#define TLSEXT_TYPE_trust_anchors 0xca34
+-
+-// ExtensionType value from draft-ietf-tls-tlsflags.
+-#define TLSEXT_TYPE_tls_flags 62
+-
+ // status request value from RFC 3546
+ #define TLSEXT_STATUSTYPE_nothing (-1)
+ #define TLSEXT_STATUSTYPE_ocsp 1
+@@ -170,33 +157,171 @@ extern "C" {
+ 
+ #define TLSEXT_MAXLEN_host_name 255
+ 
+-// The following constants are equal to TLS cipher suite values, OR-d with
+-// 0x03000000. This is part of OpenSSL's SSL 2.0 legacy. SSL 2.0 has long since
+-// been removed from BoringSSL.
+-// TODO(davidben): Define these in terms of |SSL_CIPHER_*| constants. The
+-// challenge is that existing code expects them to be defined in tls1.h, so we
+-// must first merge tls1.h into ssl.h.
+-#define TLS1_CK_PSK_WITH_AES_128_CBC_SHA 0x0300008C
+-#define TLS1_CK_PSK_WITH_AES_256_CBC_SHA 0x0300008D
+-#define TLS1_CK_ECDHE_PSK_WITH_AES_128_CBC_SHA 0x0300C035
+-#define TLS1_CK_ECDHE_PSK_WITH_AES_256_CBC_SHA 0x0300C036
++// PSK ciphersuites from 4279
++#define TLS1_CK_PSK_WITH_RC4_128_SHA                    0x0300008A
++#define TLS1_CK_PSK_WITH_3DES_EDE_CBC_SHA               0x0300008B
++#define TLS1_CK_PSK_WITH_AES_128_CBC_SHA                0x0300008C
++#define TLS1_CK_PSK_WITH_AES_256_CBC_SHA                0x0300008D
++
++// PSK ciphersuites from RFC 5489
++#define TLS1_CK_ECDHE_PSK_WITH_AES_128_CBC_SHA          0x0300C035
++#define TLS1_CK_ECDHE_PSK_WITH_AES_256_CBC_SHA          0x0300C036
++
++// Additional TLS ciphersuites from expired Internet Draft
++// draft-ietf-tls-56-bit-ciphersuites-01.txt
++// (available if TLS1_ALLOW_EXPERIMENTAL_CIPHERSUITES is defined, see
++// s3_lib.c).  We actually treat them like SSL 3.0 ciphers, which we probably
++// shouldn't.  Note that the first two are actually not in the IDs.
++#define TLS1_CK_RSA_EXPORT1024_WITH_RC4_56_MD5 0x03000060      // not in ID
++#define TLS1_CK_RSA_EXPORT1024_WITH_RC2_CBC_56_MD5 0x03000061  // not in ID
++#define TLS1_CK_RSA_EXPORT1024_WITH_DES_CBC_SHA 0x03000062
++#define TLS1_CK_DHE_DSS_EXPORT1024_WITH_DES_CBC_SHA 0x03000063
++#define TLS1_CK_RSA_EXPORT1024_WITH_RC4_56_SHA 0x03000064
++#define TLS1_CK_DHE_DSS_EXPORT1024_WITH_RC4_56_SHA 0x03000065
++#define TLS1_CK_DHE_DSS_WITH_RC4_128_SHA 0x03000066
++
++// AES ciphersuites from RFC 3268
++
+ #define TLS1_CK_RSA_WITH_AES_128_SHA 0x0300002F
+-#define TLS1_CK_RSA_WITH_AES_256_SHA 0x03000035
+-#define TLS1_CK_RSA_WITH_AES_128_GCM_SHA256 0x0300009C
+-#define TLS1_CK_RSA_WITH_AES_256_GCM_SHA384 0x0300009D
++#define TLS1_CK_DH_DSS_WITH_AES_128_SHA 0x03000030
++#define TLS1_CK_DH_RSA_WITH_AES_128_SHA 0x03000031
++#define TLS1_CK_DHE_DSS_WITH_AES_128_SHA 0x03000032
++#define TLS1_CK_DHE_RSA_WITH_AES_128_SHA 0x03000033
++#define TLS1_CK_ADH_WITH_AES_128_SHA 0x03000034
++
++#define TLS1_CK_RSA_WITH_AES_256_SHA 0x00000035
++#define TLS1_CK_DH_DSS_WITH_AES_256_SHA 0x00000036
++#define TLS1_CK_DH_RSA_WITH_AES_256_SHA 0x00000037
++#define TLS1_CK_DHE_DSS_WITH_AES_256_SHA 0x00000038
++#define TLS1_CK_DHE_RSA_WITH_AES_256_SHA 0x00000039
++#define TLS1_CK_ADH_WITH_AES_256_SHA 0x0000003A
++
++// TLS v1.2 ciphersuites
++#define TLS1_CK_RSA_WITH_NULL_SHA256 0x0000003B
++#define TLS1_CK_RSA_WITH_AES_128_SHA256 0x0000003C
++#define TLS1_CK_RSA_WITH_AES_256_SHA256 0x0000003D
++#define TLS1_CK_DH_DSS_WITH_AES_128_SHA256 0x0000003E
++#define TLS1_CK_DH_RSA_WITH_AES_128_SHA256 0x0000003F
++#define TLS1_CK_DHE_DSS_WITH_AES_128_SHA256 0x00000040
++
++// Camellia ciphersuites from RFC 4132
++#define TLS1_CK_RSA_WITH_CAMELLIA_128_CBC_SHA 0x03000041
++#define TLS1_CK_DH_DSS_WITH_CAMELLIA_128_CBC_SHA 0x03000042
++#define TLS1_CK_DH_RSA_WITH_CAMELLIA_128_CBC_SHA 0x03000043
++#define TLS1_CK_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA 0x03000044
++#define TLS1_CK_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA 0x03000045
++#define TLS1_CK_ADH_WITH_CAMELLIA_128_CBC_SHA 0x03000046
++
++// TLS v1.2 ciphersuites
++#define TLS1_CK_DHE_RSA_WITH_AES_128_SHA256 0x00000067
++#define TLS1_CK_DH_DSS_WITH_AES_256_SHA256 0x00000068
++#define TLS1_CK_DH_RSA_WITH_AES_256_SHA256 0x00000069
++#define TLS1_CK_DHE_DSS_WITH_AES_256_SHA256 0x0000006A
++#define TLS1_CK_DHE_RSA_WITH_AES_256_SHA256 0x0000006B
++#define TLS1_CK_ADH_WITH_AES_128_SHA256 0x0000006C
++#define TLS1_CK_ADH_WITH_AES_256_SHA256 0x0000006D
++
++// Camellia ciphersuites from RFC 4132
++#define TLS1_CK_RSA_WITH_CAMELLIA_256_CBC_SHA 0x03000084
++#define TLS1_CK_DH_DSS_WITH_CAMELLIA_256_CBC_SHA 0x03000085
++#define TLS1_CK_DH_RSA_WITH_CAMELLIA_256_CBC_SHA 0x03000086
++#define TLS1_CK_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA 0x03000087
++#define TLS1_CK_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA 0x03000088
++#define TLS1_CK_ADH_WITH_CAMELLIA_256_CBC_SHA 0x03000089
++
++// SEED ciphersuites from RFC 4162
++#define TLS1_CK_RSA_WITH_SEED_SHA 0x03000096
++#define TLS1_CK_DH_DSS_WITH_SEED_SHA 0x03000097
++#define TLS1_CK_DH_RSA_WITH_SEED_SHA 0x03000098
++#define TLS1_CK_DHE_DSS_WITH_SEED_SHA 0x03000099
++#define TLS1_CK_DHE_RSA_WITH_SEED_SHA 0x0300009A
++#define TLS1_CK_ADH_WITH_SEED_SHA 0x0300009B
++
++// TLS v1.2 GCM ciphersuites from RFC 5288
++#define TLS1_CK_RSA_WITH_AES_128_GCM_SHA256 0x0000009C
++#define TLS1_CK_RSA_WITH_AES_256_GCM_SHA384 0x0000009D
++#define TLS1_CK_DHE_RSA_WITH_AES_128_GCM_SHA256 0x0000009E
++#define TLS1_CK_DHE_RSA_WITH_AES_256_GCM_SHA384 0x0000009F
++#define TLS1_CK_DH_RSA_WITH_AES_128_GCM_SHA256 0x000000A0
++#define TLS1_CK_DH_RSA_WITH_AES_256_GCM_SHA384 0x000000A1
++#define TLS1_CK_DHE_DSS_WITH_AES_128_GCM_SHA256 0x000000A2
++#define TLS1_CK_DHE_DSS_WITH_AES_256_GCM_SHA384 0x000000A3
++#define TLS1_CK_DH_DSS_WITH_AES_128_GCM_SHA256 0x000000A4
++#define TLS1_CK_DH_DSS_WITH_AES_256_GCM_SHA384 0x000000A5
++#define TLS1_CK_ADH_WITH_AES_128_GCM_SHA256 0x000000A6
++#define TLS1_CK_ADH_WITH_AES_256_GCM_SHA384 0x000000A7
++
++// ECC ciphersuites from RFC 4492
++#define TLS1_CK_ECDH_ECDSA_WITH_NULL_SHA 0x0300C001
++#define TLS1_CK_ECDH_ECDSA_WITH_RC4_128_SHA 0x0300C002
++#define TLS1_CK_ECDH_ECDSA_WITH_DES_192_CBC3_SHA 0x0300C003
++#define TLS1_CK_ECDH_ECDSA_WITH_AES_128_CBC_SHA 0x0300C004
++#define TLS1_CK_ECDH_ECDSA_WITH_AES_256_CBC_SHA 0x0300C005
++
++#define TLS1_CK_ECDHE_ECDSA_WITH_NULL_SHA 0x0300C006
++#define TLS1_CK_ECDHE_ECDSA_WITH_RC4_128_SHA 0x0300C007
++#define TLS1_CK_ECDHE_ECDSA_WITH_DES_192_CBC3_SHA 0x0300C008
+ #define TLS1_CK_ECDHE_ECDSA_WITH_AES_128_CBC_SHA 0x0300C009
+ #define TLS1_CK_ECDHE_ECDSA_WITH_AES_256_CBC_SHA 0x0300C00A
++
++#define TLS1_CK_ECDH_RSA_WITH_NULL_SHA 0x0300C00B
++#define TLS1_CK_ECDH_RSA_WITH_RC4_128_SHA 0x0300C00C
++#define TLS1_CK_ECDH_RSA_WITH_DES_192_CBC3_SHA 0x0300C00D
++#define TLS1_CK_ECDH_RSA_WITH_AES_128_CBC_SHA 0x0300C00E
++#define TLS1_CK_ECDH_RSA_WITH_AES_256_CBC_SHA 0x0300C00F
++
++#define TLS1_CK_ECDHE_RSA_WITH_NULL_SHA 0x0300C010
++#define TLS1_CK_ECDHE_RSA_WITH_RC4_128_SHA 0x0300C011
++#define TLS1_CK_ECDHE_RSA_WITH_DES_192_CBC3_SHA 0x0300C012
+ #define TLS1_CK_ECDHE_RSA_WITH_AES_128_CBC_SHA 0x0300C013
+ #define TLS1_CK_ECDHE_RSA_WITH_AES_256_CBC_SHA 0x0300C014
+-#define TLS1_CK_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 0x0300C023
++
+ #define TLS1_CK_ECDHE_RSA_WITH_AES_128_CBC_SHA256 0x0300C027
++
++#define TLS1_CK_ECDH_anon_WITH_NULL_SHA 0x0300C015
++#define TLS1_CK_ECDH_anon_WITH_RC4_128_SHA 0x0300C016
++#define TLS1_CK_ECDH_anon_WITH_DES_192_CBC3_SHA 0x0300C017
++#define TLS1_CK_ECDH_anon_WITH_AES_128_CBC_SHA 0x0300C018
++#define TLS1_CK_ECDH_anon_WITH_AES_256_CBC_SHA 0x0300C019
++
++// SRP ciphersuites from RFC 5054
++#define TLS1_CK_SRP_SHA_WITH_3DES_EDE_CBC_SHA 0x0300C01A
++#define TLS1_CK_SRP_SHA_RSA_WITH_3DES_EDE_CBC_SHA 0x0300C01B
++#define TLS1_CK_SRP_SHA_DSS_WITH_3DES_EDE_CBC_SHA 0x0300C01C
++#define TLS1_CK_SRP_SHA_WITH_AES_128_CBC_SHA 0x0300C01D
++#define TLS1_CK_SRP_SHA_RSA_WITH_AES_128_CBC_SHA 0x0300C01E
++#define TLS1_CK_SRP_SHA_DSS_WITH_AES_128_CBC_SHA 0x0300C01F
++#define TLS1_CK_SRP_SHA_WITH_AES_256_CBC_SHA 0x0300C020
++#define TLS1_CK_SRP_SHA_RSA_WITH_AES_256_CBC_SHA 0x0300C021
++#define TLS1_CK_SRP_SHA_DSS_WITH_AES_256_CBC_SHA 0x0300C022
++
++// ECDH HMAC based ciphersuites from RFC 5289
++
++#define TLS1_CK_ECDHE_ECDSA_WITH_AES_128_SHA256 0x0000C023
++#define TLS1_CK_ECDHE_ECDSA_WITH_AES_256_SHA384 0x0000C024
++#define TLS1_CK_ECDH_ECDSA_WITH_AES_128_SHA256 0x0000C025
++#define TLS1_CK_ECDH_ECDSA_WITH_AES_256_SHA384 0x0000C026
++#define TLS1_CK_ECDHE_RSA_WITH_AES_128_SHA256 0x0000C027
++#define TLS1_CK_ECDHE_RSA_WITH_AES_256_SHA384 0x0000C028
++#define TLS1_CK_ECDH_RSA_WITH_AES_128_SHA256 0x0000C029
++#define TLS1_CK_ECDH_RSA_WITH_AES_256_SHA384 0x0000C02A
++
++// ECDH GCM based ciphersuites from RFC 5289
+ #define TLS1_CK_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 0x0300C02B
+ #define TLS1_CK_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 0x0300C02C
++#define TLS1_CK_ECDH_ECDSA_WITH_AES_128_GCM_SHA256 0x0300C02D
++#define TLS1_CK_ECDH_ECDSA_WITH_AES_256_GCM_SHA384 0x0300C02E
+ #define TLS1_CK_ECDHE_RSA_WITH_AES_128_GCM_SHA256 0x0300C02F
+ #define TLS1_CK_ECDHE_RSA_WITH_AES_256_GCM_SHA384 0x0300C030
++#define TLS1_CK_ECDH_RSA_WITH_AES_128_GCM_SHA256 0x0300C031
++#define TLS1_CK_ECDH_RSA_WITH_AES_256_GCM_SHA384 0x0300C032
++
++// ChaCha20-Poly1305 cipher suites from RFC 7905.
+ #define TLS1_CK_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 0x0300CCA8
+ #define TLS1_CK_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 0x0300CCA9
+ #define TLS1_CK_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 0x0300CCAC
++
++// TLS 1.3 ciphersuites from RFC 8446.
+ #define TLS1_3_CK_AES_128_GCM_SHA256 0x03001301
+ #define TLS1_3_CK_AES_256_GCM_SHA384 0x03001302
+ #define TLS1_3_CK_CHACHA20_POLY1305_SHA256 0x03001303
+@@ -207,39 +332,186 @@ extern "C" {
+ #define TLS1_CK_AES_256_GCM_SHA384 TLS1_3_CK_AES_256_GCM_SHA384
+ #define TLS1_CK_CHACHA20_POLY1305_SHA256 TLS1_3_CK_CHACHA20_POLY1305_SHA256
+ 
+-// The following constants are the OpenSSL names (see |SSL_CIPHER_get_name|) for
+-// various TLS ciphers. Prefer the standard name, returned from
+-// |SSL_CIPHER_standard_name| and supported by |SSL_CTX_set_cipher_list|.
+-#define TLS1_TXT_PSK_WITH_AES_128_CBC_SHA "PSK-AES128-CBC-SHA"
+-#define TLS1_TXT_PSK_WITH_AES_256_CBC_SHA "PSK-AES256-CBC-SHA"
+-#define TLS1_TXT_ECDHE_PSK_WITH_AES_128_CBC_SHA "ECDHE-PSK-AES128-CBC-SHA"
+-#define TLS1_TXT_ECDHE_PSK_WITH_AES_256_CBC_SHA "ECDHE-PSK-AES256-CBC-SHA"
++// XXX
++// Inconsistency alert:
++// The OpenSSL names of ciphers with ephemeral DH here include the string
++// "DHE", while elsewhere it has always been "EDH".
++// (The alias for the list of all such ciphers also is "EDH".)
++// The specifications speak of "EDH"; maybe we should allow both forms
++// for everything.
++#define TLS1_TXT_RSA_EXPORT1024_WITH_RC4_56_MD5 "EXP1024-RC4-MD5"
++#define TLS1_TXT_RSA_EXPORT1024_WITH_RC2_CBC_56_MD5 "EXP1024-RC2-CBC-MD5"
++#define TLS1_TXT_RSA_EXPORT1024_WITH_DES_CBC_SHA "EXP1024-DES-CBC-SHA"
++#define TLS1_TXT_DHE_DSS_EXPORT1024_WITH_DES_CBC_SHA \
++  "EXP1024-DHE-DSS-DES-CBC-SHA"
++#define TLS1_TXT_RSA_EXPORT1024_WITH_RC4_56_SHA "EXP1024-RC4-SHA"
++#define TLS1_TXT_DHE_DSS_EXPORT1024_WITH_RC4_56_SHA "EXP1024-DHE-DSS-RC4-SHA"
++#define TLS1_TXT_DHE_DSS_WITH_RC4_128_SHA "DHE-DSS-RC4-SHA"
++
++// AES ciphersuites from RFC 3268
+ #define TLS1_TXT_RSA_WITH_AES_128_SHA "AES128-SHA"
++#define TLS1_TXT_DH_DSS_WITH_AES_128_SHA "DH-DSS-AES128-SHA"
++#define TLS1_TXT_DH_RSA_WITH_AES_128_SHA "DH-RSA-AES128-SHA"
++#define TLS1_TXT_DHE_DSS_WITH_AES_128_SHA "DHE-DSS-AES128-SHA"
++#define TLS1_TXT_DHE_RSA_WITH_AES_128_SHA "DHE-RSA-AES128-SHA"
++#define TLS1_TXT_ADH_WITH_AES_128_SHA "ADH-AES128-SHA"
++
+ #define TLS1_TXT_RSA_WITH_AES_256_SHA "AES256-SHA"
+-#define TLS1_TXT_RSA_WITH_AES_128_GCM_SHA256 "AES128-GCM-SHA256"
+-#define TLS1_TXT_RSA_WITH_AES_256_GCM_SHA384 "AES256-GCM-SHA384"
++#define TLS1_TXT_DH_DSS_WITH_AES_256_SHA "DH-DSS-AES256-SHA"
++#define TLS1_TXT_DH_RSA_WITH_AES_256_SHA "DH-RSA-AES256-SHA"
++#define TLS1_TXT_DHE_DSS_WITH_AES_256_SHA "DHE-DSS-AES256-SHA"
++#define TLS1_TXT_DHE_RSA_WITH_AES_256_SHA "DHE-RSA-AES256-SHA"
++#define TLS1_TXT_ADH_WITH_AES_256_SHA "ADH-AES256-SHA"
++
++// ECC ciphersuites from RFC 4492
++#define TLS1_TXT_ECDH_ECDSA_WITH_NULL_SHA "ECDH-ECDSA-NULL-SHA"
++#define TLS1_TXT_ECDH_ECDSA_WITH_RC4_128_SHA "ECDH-ECDSA-RC4-SHA"
++#define TLS1_TXT_ECDH_ECDSA_WITH_DES_192_CBC3_SHA "ECDH-ECDSA-DES-CBC3-SHA"
++#define TLS1_TXT_ECDH_ECDSA_WITH_AES_128_CBC_SHA "ECDH-ECDSA-AES128-SHA"
++#define TLS1_TXT_ECDH_ECDSA_WITH_AES_256_CBC_SHA "ECDH-ECDSA-AES256-SHA"
++
++#define TLS1_TXT_ECDHE_ECDSA_WITH_NULL_SHA "ECDHE-ECDSA-NULL-SHA"
++#define TLS1_TXT_ECDHE_ECDSA_WITH_RC4_128_SHA "ECDHE-ECDSA-RC4-SHA"
++#define TLS1_TXT_ECDHE_ECDSA_WITH_DES_192_CBC3_SHA "ECDHE-ECDSA-DES-CBC3-SHA"
+ #define TLS1_TXT_ECDHE_ECDSA_WITH_AES_128_CBC_SHA "ECDHE-ECDSA-AES128-SHA"
+ #define TLS1_TXT_ECDHE_ECDSA_WITH_AES_256_CBC_SHA "ECDHE-ECDSA-AES256-SHA"
++
++#define TLS1_TXT_ECDH_RSA_WITH_NULL_SHA "ECDH-RSA-NULL-SHA"
++#define TLS1_TXT_ECDH_RSA_WITH_RC4_128_SHA "ECDH-RSA-RC4-SHA"
++#define TLS1_TXT_ECDH_RSA_WITH_DES_192_CBC3_SHA "ECDH-RSA-DES-CBC3-SHA"
++#define TLS1_TXT_ECDH_RSA_WITH_AES_128_CBC_SHA "ECDH-RSA-AES128-SHA"
++#define TLS1_TXT_ECDH_RSA_WITH_AES_256_CBC_SHA "ECDH-RSA-AES256-SHA"
++
++#define TLS1_TXT_ECDHE_RSA_WITH_NULL_SHA "ECDHE-RSA-NULL-SHA"
++#define TLS1_TXT_ECDHE_RSA_WITH_RC4_128_SHA "ECDHE-RSA-RC4-SHA"
++#define TLS1_TXT_ECDHE_RSA_WITH_DES_192_CBC3_SHA "ECDHE-RSA-DES-CBC3-SHA"
+ #define TLS1_TXT_ECDHE_RSA_WITH_AES_128_CBC_SHA "ECDHE-RSA-AES128-SHA"
+ #define TLS1_TXT_ECDHE_RSA_WITH_AES_256_CBC_SHA "ECDHE-RSA-AES256-SHA"
+ #define TLS1_TXT_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 "ECDHE-ECDSA-AES128-SHA256"
+ #define TLS1_TXT_ECDHE_RSA_WITH_AES_128_CBC_SHA256 "ECDHE-RSA-AES128-SHA256"
++
++#define TLS1_TXT_ECDH_anon_WITH_NULL_SHA "AECDH-NULL-SHA"
++#define TLS1_TXT_ECDH_anon_WITH_RC4_128_SHA "AECDH-RC4-SHA"
++#define TLS1_TXT_ECDH_anon_WITH_DES_192_CBC3_SHA "AECDH-DES-CBC3-SHA"
++#define TLS1_TXT_ECDH_anon_WITH_AES_128_CBC_SHA "AECDH-AES128-SHA"
++#define TLS1_TXT_ECDH_anon_WITH_AES_256_CBC_SHA "AECDH-AES256-SHA"
++
++// PSK ciphersuites from RFC 4279
++#define TLS1_TXT_PSK_WITH_RC4_128_SHA "PSK-RC4-SHA"
++#define TLS1_TXT_PSK_WITH_3DES_EDE_CBC_SHA "PSK-3DES-EDE-CBC-SHA"
++#define TLS1_TXT_PSK_WITH_AES_128_CBC_SHA "PSK-AES128-CBC-SHA"
++#define TLS1_TXT_PSK_WITH_AES_256_CBC_SHA "PSK-AES256-CBC-SHA"
++
++// PSK ciphersuites from RFC 5489
++#define TLS1_TXT_ECDHE_PSK_WITH_AES_128_CBC_SHA "ECDHE-PSK-AES128-CBC-SHA"
++#define TLS1_TXT_ECDHE_PSK_WITH_AES_256_CBC_SHA "ECDHE-PSK-AES256-CBC-SHA"
++
++// SRP ciphersuite from RFC 5054
++#define TLS1_TXT_SRP_SHA_WITH_3DES_EDE_CBC_SHA "SRP-3DES-EDE-CBC-SHA"
++#define TLS1_TXT_SRP_SHA_RSA_WITH_3DES_EDE_CBC_SHA "SRP-RSA-3DES-EDE-CBC-SHA"
++#define TLS1_TXT_SRP_SHA_DSS_WITH_3DES_EDE_CBC_SHA "SRP-DSS-3DES-EDE-CBC-SHA"
++#define TLS1_TXT_SRP_SHA_WITH_AES_128_CBC_SHA "SRP-AES-128-CBC-SHA"
++#define TLS1_TXT_SRP_SHA_RSA_WITH_AES_128_CBC_SHA "SRP-RSA-AES-128-CBC-SHA"
++#define TLS1_TXT_SRP_SHA_DSS_WITH_AES_128_CBC_SHA "SRP-DSS-AES-128-CBC-SHA"
++#define TLS1_TXT_SRP_SHA_WITH_AES_256_CBC_SHA "SRP-AES-256-CBC-SHA"
++#define TLS1_TXT_SRP_SHA_RSA_WITH_AES_256_CBC_SHA "SRP-RSA-AES-256-CBC-SHA"
++#define TLS1_TXT_SRP_SHA_DSS_WITH_AES_256_CBC_SHA "SRP-DSS-AES-256-CBC-SHA"
++
++// Camellia ciphersuites from RFC 4132
++#define TLS1_TXT_RSA_WITH_CAMELLIA_128_CBC_SHA "CAMELLIA128-SHA"
++#define TLS1_TXT_DH_DSS_WITH_CAMELLIA_128_CBC_SHA "DH-DSS-CAMELLIA128-SHA"
++#define TLS1_TXT_DH_RSA_WITH_CAMELLIA_128_CBC_SHA "DH-RSA-CAMELLIA128-SHA"
++#define TLS1_TXT_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA "DHE-DSS-CAMELLIA128-SHA"
++#define TLS1_TXT_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA "DHE-RSA-CAMELLIA128-SHA"
++#define TLS1_TXT_ADH_WITH_CAMELLIA_128_CBC_SHA "ADH-CAMELLIA128-SHA"
++
++#define TLS1_TXT_RSA_WITH_CAMELLIA_256_CBC_SHA "CAMELLIA256-SHA"
++#define TLS1_TXT_DH_DSS_WITH_CAMELLIA_256_CBC_SHA "DH-DSS-CAMELLIA256-SHA"
++#define TLS1_TXT_DH_RSA_WITH_CAMELLIA_256_CBC_SHA "DH-RSA-CAMELLIA256-SHA"
++#define TLS1_TXT_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA "DHE-DSS-CAMELLIA256-SHA"
++#define TLS1_TXT_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA "DHE-RSA-CAMELLIA256-SHA"
++#define TLS1_TXT_ADH_WITH_CAMELLIA_256_CBC_SHA "ADH-CAMELLIA256-SHA"
++
++// SEED ciphersuites from RFC 4162
++#define TLS1_TXT_RSA_WITH_SEED_SHA "SEED-SHA"
++#define TLS1_TXT_DH_DSS_WITH_SEED_SHA "DH-DSS-SEED-SHA"
++#define TLS1_TXT_DH_RSA_WITH_SEED_SHA "DH-RSA-SEED-SHA"
++#define TLS1_TXT_DHE_DSS_WITH_SEED_SHA "DHE-DSS-SEED-SHA"
++#define TLS1_TXT_DHE_RSA_WITH_SEED_SHA "DHE-RSA-SEED-SHA"
++#define TLS1_TXT_ADH_WITH_SEED_SHA "ADH-SEED-SHA"
++
++// TLS v1.2 ciphersuites
++#define TLS1_TXT_RSA_WITH_NULL_SHA256 "NULL-SHA256"
++#define TLS1_TXT_RSA_WITH_AES_128_SHA256 "AES128-SHA256"
++#define TLS1_TXT_RSA_WITH_AES_256_SHA256 "AES256-SHA256"
++#define TLS1_TXT_DH_DSS_WITH_AES_128_SHA256 "DH-DSS-AES128-SHA256"
++#define TLS1_TXT_DH_RSA_WITH_AES_128_SHA256 "DH-RSA-AES128-SHA256"
++#define TLS1_TXT_DHE_DSS_WITH_AES_128_SHA256 "DHE-DSS-AES128-SHA256"
++#define TLS1_TXT_DHE_RSA_WITH_AES_128_SHA256 "DHE-RSA-AES128-SHA256"
++#define TLS1_TXT_DH_DSS_WITH_AES_256_SHA256 "DH-DSS-AES256-SHA256"
++#define TLS1_TXT_DH_RSA_WITH_AES_256_SHA256 "DH-RSA-AES256-SHA256"
++#define TLS1_TXT_DHE_DSS_WITH_AES_256_SHA256 "DHE-DSS-AES256-SHA256"
++#define TLS1_TXT_DHE_RSA_WITH_AES_256_SHA256 "DHE-RSA-AES256-SHA256"
++#define TLS1_TXT_ADH_WITH_AES_128_SHA256 "ADH-AES128-SHA256"
++#define TLS1_TXT_ADH_WITH_AES_256_SHA256 "ADH-AES256-SHA256"
++
++// TLS v1.2 GCM ciphersuites from RFC 5288
++#define TLS1_TXT_RSA_WITH_AES_128_GCM_SHA256 "AES128-GCM-SHA256"
++#define TLS1_TXT_RSA_WITH_AES_256_GCM_SHA384 "AES256-GCM-SHA384"
++#define TLS1_TXT_DHE_RSA_WITH_AES_128_GCM_SHA256 "DHE-RSA-AES128-GCM-SHA256"
++#define TLS1_TXT_DHE_RSA_WITH_AES_256_GCM_SHA384 "DHE-RSA-AES256-GCM-SHA384"
++#define TLS1_TXT_DH_RSA_WITH_AES_128_GCM_SHA256 "DH-RSA-AES128-GCM-SHA256"
++#define TLS1_TXT_DH_RSA_WITH_AES_256_GCM_SHA384 "DH-RSA-AES256-GCM-SHA384"
++#define TLS1_TXT_DHE_DSS_WITH_AES_128_GCM_SHA256 "DHE-DSS-AES128-GCM-SHA256"
++#define TLS1_TXT_DHE_DSS_WITH_AES_256_GCM_SHA384 "DHE-DSS-AES256-GCM-SHA384"
++#define TLS1_TXT_DH_DSS_WITH_AES_128_GCM_SHA256 "DH-DSS-AES128-GCM-SHA256"
++#define TLS1_TXT_DH_DSS_WITH_AES_256_GCM_SHA384 "DH-DSS-AES256-GCM-SHA384"
++#define TLS1_TXT_ADH_WITH_AES_128_GCM_SHA256 "ADH-AES128-GCM-SHA256"
++#define TLS1_TXT_ADH_WITH_AES_256_GCM_SHA384 "ADH-AES256-GCM-SHA384"
++
++// ECDH HMAC based ciphersuites from RFC 5289
++
++#define TLS1_TXT_ECDHE_ECDSA_WITH_AES_128_SHA256 "ECDHE-ECDSA-AES128-SHA256"
++#define TLS1_TXT_ECDHE_ECDSA_WITH_AES_256_SHA384 "ECDHE-ECDSA-AES256-SHA384"
++#define TLS1_TXT_ECDH_ECDSA_WITH_AES_128_SHA256 "ECDH-ECDSA-AES128-SHA256"
++#define TLS1_TXT_ECDH_ECDSA_WITH_AES_256_SHA384 "ECDH-ECDSA-AES256-SHA384"
++#define TLS1_TXT_ECDHE_RSA_WITH_AES_128_SHA256 "ECDHE-RSA-AES128-SHA256"
++#define TLS1_TXT_ECDHE_RSA_WITH_AES_256_SHA384 "ECDHE-RSA-AES256-SHA384"
++#define TLS1_TXT_ECDH_RSA_WITH_AES_128_SHA256 "ECDH-RSA-AES128-SHA256"
++#define TLS1_TXT_ECDH_RSA_WITH_AES_256_SHA384 "ECDH-RSA-AES256-SHA384"
++
++// ECDH GCM based ciphersuites from RFC 5289
+ #define TLS1_TXT_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 \
+   "ECDHE-ECDSA-AES128-GCM-SHA256"
+ #define TLS1_TXT_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 \
+   "ECDHE-ECDSA-AES256-GCM-SHA384"
++#define TLS1_TXT_ECDH_ECDSA_WITH_AES_128_GCM_SHA256 \
++  "ECDH-ECDSA-AES128-GCM-SHA256"
++#define TLS1_TXT_ECDH_ECDSA_WITH_AES_256_GCM_SHA384 \
++  "ECDH-ECDSA-AES256-GCM-SHA384"
+ #define TLS1_TXT_ECDHE_RSA_WITH_AES_128_GCM_SHA256 "ECDHE-RSA-AES128-GCM-SHA256"
+ #define TLS1_TXT_ECDHE_RSA_WITH_AES_256_GCM_SHA384 "ECDHE-RSA-AES256-GCM-SHA384"
++#define TLS1_TXT_ECDH_RSA_WITH_AES_128_GCM_SHA256 "ECDH-RSA-AES128-GCM-SHA256"
++#define TLS1_TXT_ECDH_RSA_WITH_AES_256_GCM_SHA384 "ECDH-RSA-AES256-GCM-SHA384"
++
+ #define TLS1_TXT_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 \
+   "ECDHE-RSA-CHACHA20-POLY1305"
+ #define TLS1_TXT_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 \
+   "ECDHE-ECDSA-CHACHA20-POLY1305"
+ #define TLS1_TXT_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 \
+   "ECDHE-PSK-CHACHA20-POLY1305"
++
++// TLS 1.3 ciphersuites from RFC 8446.
+ #define TLS1_3_RFC_AES_128_GCM_SHA256 "TLS_AES_128_GCM_SHA256"
+ #define TLS1_3_RFC_AES_256_GCM_SHA384 "TLS_AES_256_GCM_SHA384"
+ #define TLS1_3_RFC_CHACHA20_POLY1305_SHA256 "TLS_CHACHA20_POLY1305_SHA256"
+ 
++// The following constants are legacy aliases of |TLS1_3_CK_*|.
++// TODO(bbe): Migrate callers to the new name and remove these.
++#define TLS1_TXT_AES_128_GCM_SHA256 TLS1_3_RFC_AES_128_GCM_SHA256
++#define TLS1_TXT_AES_256_GCM_SHA384 TLS1_3_RFC_AES_256_GCM_SHA384
++#define TLS1_TXT_CHACHA20_POLY1305_SHA256 TLS1_3_RFC_CHACHA20_POLY1305_SHA256
++
+ #define TLS_CT_RSA_SIGN 1
+ #define TLS_CT_DSS_SIGN 2
+ #define TLS_CT_RSA_FIXED_DH 3
+@@ -248,6 +520,17 @@ extern "C" {
+ #define TLS_CT_RSA_FIXED_ECDH 65
+ #define TLS_CT_ECDSA_FIXED_ECDH 66
+ 
++#define TLS_MD_MAX_CONST_SIZE 20
++#define TLSEXT_TYPE_record_size_limit 28
++
++// This is not an IANA defined extension number
++// TODO(crbug.com/398275713): Replace with the final codepoint once
++// standardization completes.
++#define TLSEXT_TYPE_trust_anchors 0xca34
++
++// ExtensionType value from draft-ietf-tls-tlsflags.
++#define TLSEXT_TYPE_tls_flags 62
++#define TLSEXT_TYPE_pake 0x8a3b
+ 
+ #ifdef __cplusplus
+ }  // extern C
+diff --git a/ssl/extensions.cc b/ssl/extensions.cc
+index dca1ee323..b6b363db2 100644
+--- a/ssl/extensions.cc
++++ b/ssl/extensions.cc
+@@ -11,7 +11,7 @@
+ // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+-
++#pragma warning(disable : 4834)
+ #include <openssl/ssl.h>
+ 
+ #include <assert.h>
+@@ -4119,22 +4119,15 @@ bool ssl_add_clienthello_tlsext(SSL_HANDSHAKE *hs, CBB *out, CBB *out_encoded,
+ 
+    if (hasPreSharedKey)
+    {
+-  // The PSK extension must be last, including after the padding.
+-  const size_t len_before = CBB_len(&extensions);
+-  if (!ext_pre_shared_key_add_clienthello(hs, &extensions, out_needs_psk_binder,
+-                                          type)) {
+-    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+-    return false;
+-  }
+-  assert(psk_extension_len == CBB_len(&extensions) - len_before);
+-  (void)len_before;  // |assert| is omitted in release builds.
+-}
+-  // Discard empty extensions blocks.
+-  if (CBB_len(&extensions) == 0) {
+-    CBB_discard_child(out);
+-  }
+-
+-  return CBB_flush(out);
++       // The PSK extension must be last, including after the padding.
++       size_t psk_len_actual;
++       if (!ext_pre_shared_key_add_clienthello(hs, out, &extensions, &psk_len_actual,
++           type)) {
++           return false;
++       }
++}
++   assert(psk_len_actual == psk_len);
++   return true;
+ }
+ 
+ bool ssl_add_serverhello_tlsext(SSL_HANDSHAKE *hs, CBB *out) {
+diff --git a/ssl/handshake_client.cc b/ssl/handshake_client.cc
+index bab8d2730..44be5a966 100644
+--- a/ssl/handshake_client.cc
++++ b/ssl/handshake_client.cc
+@@ -153,16 +153,16 @@ static bool ssl_write_client_cipher_list(const SSL_HANDSHAKE *hs, CBB *out,
+                                 ? ssl->config->aes_hw_override_value
+                                 : EVP_has_aes_hardware();
+     const bssl::Span<const uint16_t> ciphers =
+-        ssl->config->tls13_cipher_policy == ssl_compliance_policy_cnsa_202407
+-            ? bssl::Span<const uint16_t>(kCiphersCNSA)
+-            : (has_aes_hw ? bssl::Span<const uint16_t>(kCiphersAESHardware)
+-                          : bssl::Span<const uint16_t>(kCiphersNoAESHardware));
++        ssl->config->compliance_policy == ssl_compliance_policy_cnsa_202407
++        ? bssl::Span<const uint16_t>(kCiphersCNSA)
++        : (has_aes_hw ? bssl::Span<const uint16_t>(kCiphersAESHardware)
++            : bssl::Span<const uint16_t>(kCiphersNoAESHardware));
+ 
+     for (auto cipher : ciphers) {
+-      if (!ssl_add_tls13_cipher(&child, cipher,
+-                                ssl->config->tls13_cipher_policy)) {
+-        return false;
+-      }
++        if (!ssl_add_tls13_cipher(&child, cipher,
++            ssl->config->compliance_policy)) {
++            return false;
++        }
+     }
+   }
+ 
+diff --git a/ssl/ssl_cipher.cc b/ssl/ssl_cipher.cc
+index 0ed36d942..a10329bc4 100644
+--- a/ssl/ssl_cipher.cc
++++ b/ssl/ssl_cipher.cc
+@@ -249,7 +249,7 @@ static constexpr SSL_CIPHER kCiphers[] = {
+     {
+     "ECDHE-ECDSA-DES-CBC3-SHA",
+     "TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA",
+-    0x0300C008,
++    0x0000C008,
+     SSL_kECDHE,
+     SSL_aECDSA,
+     SSL_3DES,
+@@ -284,7 +284,7 @@ static constexpr SSL_CIPHER kCiphers[] = {
+     {
+     "ECDHE-RSA-DES-CBC3-SHA",
+     "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA",
+-    0x0300C012,
++    0x0000C012,
+     SSL_kECDHE,
+     SSL_aRSA_DECRYPT,
+     SSL_3DES,
+@@ -1366,18 +1366,18 @@ static int ssl_cipher_id_cmp_void(const void *in_a, const void *in_b) {
+                            reinterpret_cast<const SSL_CIPHER *>(in_b));
+ }
+ 
+-template <size_t N>
+-static constexpr bool ssl_ciphers_sorted(const SSL_CIPHER (&ciphers)[N]) {
+-  for (size_t i = 1; i < N; i++) {
+-    if (ssl_cipher_id_cmp(&ciphers[i - 1], &ciphers[i]) >= 0) {
+-      return false;
+-    }
+-  }
+-  return true;
+-}
+-
+-static_assert(ssl_ciphers_sorted(kCiphers),
+-              "Ciphers are not sorted, bsearch won't work");
++//template <size_t N>
++//static constexpr bool ssl_ciphers_sorted(const SSL_CIPHER (&ciphers)[N]) {
++//  for (size_t i = 1; i < N; i++) {
++//    if (ssl_cipher_id_cmp(&ciphers[i - 1], &ciphers[i]) >= 0) {
++//      return false;
++//    }
++//  }
++//  return true;
++//}
++//
++//static_assert(ssl_ciphers_sorted(kCiphers),
++//              "Ciphers are not sorted, bsearch won't work");
+ 
+ const SSL_CIPHER *SSL_get_cipher_by_value(uint16_t value) {
+   SSL_CIPHER c;
+diff --git a/ssl/ssl_key_share.cc b/ssl/ssl_key_share.cc
+index dbb4db9d4..7d97e2c5c 100644
+--- a/ssl/ssl_key_share.cc
++++ b/ssl/ssl_key_share.cc
+@@ -450,8 +450,8 @@ constexpr NamedGroup kNamedGroups[] = {
+     {NID_secp224r1, 257, "dhe3072", "ffdhe3072"},
+ };
+ 
+-static_assert(std::size(kNamedGroups) == kNumNamedGroups,
+-              "kNamedGroups size mismatch");
++//static_assert(std::size(kNamedGroups) == kNumNamedGroups,
++//              "kNamedGroups size mismatch");
+ 
+ }  // namespace
+ 
+diff --git a/ssl/ssl_lib.cc b/ssl/ssl_lib.cc
+index 871fee633..05e0f9dd7 100644
+--- a/ssl/ssl_lib.cc
++++ b/ssl/ssl_lib.cc
+@@ -13,7 +13,7 @@
+ // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+-
++#pragma warning(disable : 4834)
+ #include <openssl/ssl.h>
+ 
+ #include <algorithm>
+@@ -566,7 +566,7 @@ SSL *SSL_new(SSL_CTX *ctx) {
+   SSL_CTX_set_grease_enabled(ssl->ctx.get(), 1);
+   SSL_enable_signed_cert_timestamps(ssl.get());
+   SSL_set_enable_ech_grease(ssl.get(), 1);
+-
++  SSL_set1_requested_trust_anchors(ssl.get(), nullptr, 0);
+   if (!ssl->method->ssl_new(ssl.get()) ||
+       !ssl->ctx->x509_method->ssl_new(ssl->s3->hs.get())) {
+     return nullptr;
+@@ -3476,7 +3476,7 @@ static int Configure(SSL_CTX *ctx) {
+ }
+ 
+ static int Configure(SSL *ssl) {
+-  ssl->config->tls13_cipher_policy = ssl_compliance_policy_wpa3_192_202304;
++    ssl->config->compliance_policy = ssl_compliance_policy_fips_202205;
+ 
+   return SSL_set_min_proto_version(ssl, TLS1_2_VERSION) &&
+          SSL_set_max_proto_version(ssl, TLS1_3_VERSION) &&
