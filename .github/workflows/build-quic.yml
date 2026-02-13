@@ -62,7 +62,7 @@ jobs:
         with:
           targets: ${{ matrix.settings.target }}
       - name: Build in docker
-        uses: maus007/docker-run-action@v3
+        uses: maus007/docker-run-action@v1
         if: ${{ matrix.settings.docker }}
         with:
           image: ${{ matrix.settings.docker }}
