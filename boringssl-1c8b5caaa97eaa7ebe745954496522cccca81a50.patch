@@ -1,7 +1,7 @@
 From 1c82423057845c92c512d3f3d1125e28981117fb Mon Sep 17 00:00:00 2001
 From: Ossian <857984597@qq.com>
 Date: Fri, 13 Feb 2026 07:53:17 +0800
-Subject: [PATCH 1/3] patch
+Subject: [PATCH 1/4] patch
 
 ---
  include/openssl/ssl.h         |   3 +
@@ -659,12 +659,8 @@ index daf643572..dca1ee323 100644
    if (!hs->config->permute_extensions) {
 +      if (!hs->ssl->ctx->extension_permutation.empty()) {
 +          Array<uint8_t> permutation;
-+          if (!permutation.Init(hs->ssl->ctx->extension_permutation.size())) {
-+              return false;
-+          }
-+          if (!permutation.CopyFrom(hs->ssl->ctx->extension_permutation)) {
-+              return false;
-+          }
++          permutation.Init(hs->ssl->ctx->extension_permutation.size());
++          permutation.CopyFrom(hs->ssl->ctx->extension_permutation);
 +          hs->extension_permutation = std::move(permutation);
 +      }
      return true;
@@ -1207,7 +1203,7 @@ index 69db15b24..a1ded09ad 100644
 From 931c79ee3398465922c605758be53fcb90a4e016 Mon Sep 17 00:00:00 2001
 From: Ossian <857984597@qq.com>
 Date: Fri, 13 Feb 2026 09:12:15 +0800
-Subject: [PATCH 2/3] patch
+Subject: [PATCH 2/4] patch
 
 ---
  include/openssl/tls1.h  | 357 +++++++++++++++++++++++++++++++++++-----
@@ -1838,7 +1834,7 @@ index 871fee633..05e0f9dd7 100644
 From af05bb665bbd94804a799603eea4d17bcf36a099 Mon Sep 17 00:00:00 2001
 From: Ossian <857984597@qq.com>
 Date: Fri, 13 Feb 2026 11:10:41 +0800
-Subject: [PATCH 3/3] patch
+Subject: [PATCH 3/4] patch
 
 ---
  ssl/extensions.cc | 2 ++
@@ -1873,6 +1869,34 @@ index 05e0f9dd7..84bef472d 100644
  #include <openssl/ssl.h>
  
  #include <algorithm>
+-- 
+2.36.1.windows.1
+
+
+From dc19dbabcd76da98f3a5d250efc794677e462df1 Mon Sep 17 00:00:00 2001
+From: Ossian <857984597@qq.com>
+Date: Fri, 13 Feb 2026 11:41:18 +0800
+Subject: [PATCH 4/4] patch
+
+---
+ ssl/extensions.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ssl/extensions.cc b/ssl/extensions.cc
+index 40442d97a..729b4c3fa 100644
+--- a/ssl/extensions.cc
++++ b/ssl/extensions.cc
+@@ -3832,8 +3832,8 @@ bool ssl_setup_extension_permutation(SSL_HANDSHAKE *hs) {
+   if (!hs->config->permute_extensions) {
+       if (!hs->ssl->ctx->extension_permutation.empty()) {
+           Array<uint8_t> permutation;
+-          permutation.Init(hs->ssl->ctx->extension_permutation.size());
+-          permutation.CopyFrom(hs->ssl->ctx->extension_permutation);
++          if (!permutation.Init(hs->ssl->ctx->extension_permutation.size())) {return false;};
++          if (!permutation.CopyFrom(hs->ssl->ctx->extension_permutation)) {return false;};
+           hs->extension_permutation = std::move(permutation);
+       }
+     return true;
 -- 
 2.36.1.windows.1
 
