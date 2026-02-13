@@ -1,4 +1,4 @@
-FROM debian:12.4-slim as stage1
+FROM ubuntu:22.04 as stage1
 ENV PATH /usr/local/osxcross/bin:${PATH}
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \

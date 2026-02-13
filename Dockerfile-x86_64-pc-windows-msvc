@@ -86,7 +86,7 @@ RUN echo "cd C:/brotli && del build && \
     \
     cd C:/boringssl && del build && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DOPENSSL_NO_ASM=1 -DGO_EXECUTABLE=C:/go/bin/go.exe -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=1 -GNinja .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBENCHMARK_ENABLE_TESTING=OFF -DCMAKE_INSTALL_PREFIX=./installed -DOPENSSL_NO_ASM=1 -DGO_EXECUTABLE=C:/go/bin/go.exe -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=1 -GNinja .. && \
     ninja ssl && \
     mkdir lib && \
     xcopy ./ssl ./lib /E /I /Y && \
