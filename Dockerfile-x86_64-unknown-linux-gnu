@@ -15,7 +15,14 @@ COPY quiche quiche
 RUN apt-get update && \
     apt-get install -y build-essential
 
-RUN apt-get install -y curl golang cmake ninja-build
+RUN apt-get install -y curl golang ninja-build
+
+ARG CMAKE_VERSION=3.22.6
+
+RUN curl -L -k https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh -o /tmp/cmake-install.sh && \
+    chmod +x /tmp/cmake-install.sh && \
+    /tmp/cmake-install.sh --skip-license --prefix=/usr/local && \
+    rm -f /tmp/cmake-install.sh
 
 RUN curl -L https://github.com/google/brotli/archive/${BROTLI_COMMIT}.tar.gz -o brotli-${BROTLI_COMMIT}.tar.gz && \
     tar -xf brotli-${BROTLI_COMMIT}.tar.gz

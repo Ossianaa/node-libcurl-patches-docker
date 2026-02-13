@@ -3,7 +3,6 @@ FROM ubuntu:22.04 as stage1
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        cmake \
         g++-aarch64-linux-gnu \
         gawk \
         git \
@@ -13,11 +12,19 @@ RUN apt-get update && \
         golang \
         ninja-build \
         python3-pip && \
-    pip3 install --break-system-packages conan==1.62.0 && \
     rm -rf \
         /var/lib/apt/lists/* \
         /var/cache/apt/pkgcache.bin \
         /var/cache/apt/srcpkgcache.bin
+
+ARG CMAKE_VERSION=3.22.6
+
+RUN curl -L -k https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh -o /tmp/cmake-install.sh && \
+    chmod +x /tmp/cmake-install.sh && \
+    /tmp/cmake-install.sh --skip-license --prefix=/usr/local && \
+    rm -f /tmp/cmake-install.sh
+
+RUN pip3 install conan==1.62.0
 ENV CXX "aarch64-linux-gnu-g++"
 ENV CC "aarch64-linux-gnu-gcc"
 ENV CPPFLAGS "-static"
