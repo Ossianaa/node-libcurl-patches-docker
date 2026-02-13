@@ -104,7 +104,7 @@ RUN cd boringssl-${BORINGSSL_COMMIT} && \
 
 RUN cd boringssl-${BORINGSSL_COMMIT} && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DCMAKE_SYSTEM_NAME="Darwin"  -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=1 -GNinja .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF  -DBENCHMARK_ENABLE_TESTING=OFF -DCMAKE_INSTALL_PREFIX=./installed -DCMAKE_SYSTEM_NAME="Darwin"  -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=1 -GNinja .. && \
     ninja ssl
 
 RUN mkdir boringssl-${BORINGSSL_COMMIT}/build/lib && \
@@ -124,8 +124,6 @@ RUN cd curl-${CURL_COMMIT} && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=./installed \
       -DCMAKE_SYSTEM_NAME="Darwin" \
-      -DBUILD_TESTING=OFF \
-      -DBENCHMARK_ENABLE_TESTING=OFF \
       -DBUILD_SHARED_LIBS=0 \
       -DCMAKE_BUILD_TYPE=Release \
       -DOPENSSL_ROOT_DIR=/boringssl-${BORINGSSL_COMMIT}/build/ \
