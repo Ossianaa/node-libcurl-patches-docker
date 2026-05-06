@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 1b19c681d..ae12c4c87 100644
+index 1b19c681d2..ae12c4c872 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -706,7 +706,7 @@ if(USE_QUICHE)
@@ -25,7 +25,7 @@ index 1b19c681d..ae12c4c87 100644
    if(WIN32)
      option(USE_WIN32_LDAP "Use Windows LDAP implementation" ON)
 diff --git a/include/curl/curl.h b/include/curl/curl.h
-index bf71d82fb..789c1d5a9 100644
+index bf71d82fb4..789c1d5a9e 100644
 --- a/include/curl/curl.h
 +++ b/include/curl/curl.h
 @@ -2209,7 +2209,13 @@ typedef enum {
@@ -54,7 +54,7 @@ index bf71d82fb..789c1d5a9 100644
  
  /* CURLINFO_RESPONSE_CODE is the new name for the option previously known as
 diff --git a/lib/cf-h2-proxy.c b/lib/cf-h2-proxy.c
-index dbc895d26..a5058560f 100644
+index dbc895d263..a5058560f8 100644
 --- a/lib/cf-h2-proxy.c
 +++ b/lib/cf-h2-proxy.c
 @@ -48,7 +48,7 @@
@@ -67,7 +67,7 @@ index dbc895d26..a5058560f 100644
  #define PROXY_H2_NW_RECV_CHUNKS  (H2_TUNNEL_WINDOW_SIZE / PROXY_H2_CHUNK_SIZE)
  #define PROXY_H2_NW_SEND_CHUNKS   1
 diff --git a/lib/curl_setup.h b/lib/curl_setup.h
-index ba14972e2..2b357e281 100644
+index ba14972e23..2b357e2811 100644
 --- a/lib/curl_setup.h
 +++ b/lib/curl_setup.h
 @@ -844,4 +844,4 @@ int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf,
@@ -78,7 +78,7 @@ index ba14972e2..2b357e281 100644
 +#endif /* HEADER_CURL_SETUP_H */
 \ No newline at end of file
 diff --git a/lib/dynhds.c b/lib/dynhds.c
-index 979b3e825..602d0a1fb 100644
+index 979b3e825b..602d0a1fbe 100644
 --- a/lib/dynhds.c
 +++ b/lib/dynhds.c
 @@ -133,6 +133,16 @@ void Curl_dynhds_set_opts(struct dynhds *dynhds, int opts)
@@ -99,7 +99,7 @@ index 979b3e825..602d0a1fb 100644
  struct dynhds_entry *Curl_dynhds_getn(struct dynhds *dynhds, size_t n)
  {
 diff --git a/lib/dynhds.h b/lib/dynhds.h
-index 8a053480e..f9f38e8b1 100644
+index 8a053480e9..f9f38e8b1b 100644
 --- a/lib/dynhds.h
 +++ b/lib/dynhds.h
 @@ -53,7 +53,7 @@ struct dynhds {
@@ -122,7 +122,7 @@ index 8a053480e..f9f38e8b1 100644
   * Return the n-th header entry or NULL if it does not exist.
   */
 diff --git a/lib/easyoptions.c b/lib/easyoptions.c
-index e69c658b0..e26d55e62 100644
+index e69c658b0c..e26d55e620 100644
 --- a/lib/easyoptions.c
 +++ b/lib/easyoptions.c
 @@ -133,6 +133,11 @@ struct curl_easyoption Curl_easyopts[] = {
@@ -146,7 +146,7 @@ index e69c658b0..e26d55e62 100644
  }
  #endif
 diff --git a/lib/getinfo.c b/lib/getinfo.c
-index f1574e097..3489f95d5 100644
+index f1574e097b..3489f95d5a 100644
 --- a/lib/getinfo.c
 +++ b/lib/getinfo.c
 @@ -180,7 +180,15 @@ static CURLcode getinfo_char(struct Curl_easy *data, CURLINFO info,
@@ -167,7 +167,7 @@ index f1574e097..3489f95d5 100644
      return CURLE_UNKNOWN_OPTION;
    }
 diff --git a/lib/http.c b/lib/http.c
-index 40ef70df5..e5d85af83 100644
+index 40ef70df50..e5d85af83b 100644
 --- a/lib/http.c
 +++ b/lib/http.c
 @@ -2029,12 +2029,28 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
@@ -319,7 +319,7 @@ index 40ef70df5..e5d85af83 100644
    }
  
 diff --git a/lib/http2.c b/lib/http2.c
-index c8b059498..1da2d21f0 100644
+index c8b059498f..1da2d21f06 100644
 --- a/lib/http2.c
 +++ b/lib/http2.c
 @@ -69,7 +69,7 @@
@@ -615,7 +615,7 @@ index c8b059498..1da2d21f0 100644
    case HTTPREQ_POST:
    case HTTPREQ_POST_FORM:
 diff --git a/lib/setopt.c b/lib/setopt.c
-index 0d399adfe..c3d04654d 100644
+index 0d399adfe8..c3d04654dd 100644
 --- a/lib/setopt.c
 +++ b/lib/setopt.c
 @@ -3170,6 +3170,37 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
@@ -657,7 +657,7 @@ index 0d399adfe..c3d04654d 100644
      /* unknown tag and its companion, just ignore: */
      result = CURLE_UNKNOWN_OPTION;
 diff --git a/lib/setup-vms.h b/lib/setup-vms.h
-index 645cc1a9c..a5076cfd8 100644
+index 645cc1a9cd..a5076cfd8e 100644
 --- a/lib/setup-vms.h
 +++ b/lib/setup-vms.h
 @@ -285,6 +285,9 @@ static struct passwd *vms_getpwuid(uid_t uid)
@@ -671,7 +671,7 @@ index 645cc1a9c..a5076cfd8 100644
  #define SSL_free SSL_FREE
  #define SSL_get1_session SSL_GET1_SESSION
 diff --git a/lib/url.c b/lib/url.c
-index 61dad442d..166cc6f8a 100644
+index 61dad442dd..166cc6f8aa 100644
 --- a/lib/url.c
 +++ b/lib/url.c
 @@ -3613,6 +3613,7 @@ static CURLcode create_conn(struct Curl_easy *data,
@@ -683,7 +683,7 @@ index 61dad442d..166cc6f8a 100644
      data->set.str[STRING_SSL_PINNEDPUBLICKEY];
    data->set.ssl.primary.cert_blob = data->set.blobs[BLOB_CERT];
 diff --git a/lib/urldata.h b/lib/urldata.h
-index dff26e6b4..9f88e5638 100644
+index dff26e6b4b..9f88e56389 100644
 --- a/lib/urldata.h
 +++ b/lib/urldata.h
 @@ -273,6 +273,7 @@ struct ssl_primary_config {
@@ -724,7 +724,7 @@ index dff26e6b4..9f88e5638 100644
  
  struct Names {
 diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
-index 9f9c8d136..42df67dc3 100644
+index 9f9c8d136a..42df67dc35 100644
 --- a/lib/vtls/openssl.c
 +++ b/lib/vtls/openssl.c
 @@ -205,17 +205,17 @@
@@ -873,7 +873,7 @@ index 9f9c8d136..42df67dc3 100644
    { CURLSSLBACKEND_OPENSSL, "openssl" }, /* info */
  
 diff --git a/lib/vtls/openssl.h b/lib/vtls/openssl.h
-index 950faab88..df2d4dc37 100644
+index 950faab889..df2d4dc377 100644
 --- a/lib/vtls/openssl.h
 +++ b/lib/vtls/openssl.h
 @@ -65,5 +65,7 @@ CURLcode Curl_ssl_setup_x509_store(struct Curl_cfilter *cf,
@@ -885,9 +885,23 @@ index 950faab88..df2d4dc37 100644
  #endif /* USE_OPENSSL */
  #endif /* HEADER_CURL_SSLUSE_H */
 diff --git a/lib/vtls/vtls.c b/lib/vtls/vtls.c
-index 494b660a9..e880293c3 100644
+index 494b660a98..c9e1f65c90 100644
 --- a/lib/vtls/vtls.c
 +++ b/lib/vtls/vtls.c
+@@ -150,10 +150,10 @@ static const struct alpn_spec *alpn_get_spec(int httpwant, bool use_alpn)
+   if(httpwant == CURL_HTTP_VERSION_1_0)
+     return &ALPN_SPEC_H10;
+ #ifdef USE_HTTP2
+-  if(httpwant >= CURL_HTTP_VERSION_2)
+-    return &ALPN_SPEC_H2_H11;
+-#endif
++  return &ALPN_SPEC_H2_H11;
++#else
+   return &ALPN_SPEC_H11;
++#endif
+ }
+ #endif /* USE_SSL */
+ 
 @@ -210,6 +210,7 @@ Curl_clone_primary_ssl_config(struct ssl_primary_config *source,
    CLONE_STRING(clientcert);
    CLONE_STRING(cipher_list);
@@ -923,7 +937,7 @@ index 494b660a9..e880293c3 100644
 +
  #endif /* USE_SSL */
 diff --git a/lib/vtls/vtls_int.h b/lib/vtls/vtls_int.h
-index a6e4544a8..30851bb36 100644
+index a6e4544a87..30851bb366 100644
 --- a/lib/vtls/vtls_int.h
 +++ b/lib/vtls/vtls_int.h
 @@ -215,6 +215,9 @@ CURLcode Curl_ssl_addsessionid(struct Curl_cfilter *cf,
@@ -937,7 +951,7 @@ index a6e4544a8..30851bb36 100644
  #include "gtls.h"           /* GnuTLS versions */
  #include "wolfssl.h"        /* wolfSSL versions */
 diff --git a/lib/ws.c b/lib/ws.c
-index 3c1964b86..54f95351f 100644
+index 3c1964b860..54f95351ff 100644
 --- a/lib/ws.c
 +++ b/lib/ws.c
 @@ -540,12 +540,22 @@ CURLcode Curl_ws_request(struct Curl_easy *data, REQTYPE *req)
