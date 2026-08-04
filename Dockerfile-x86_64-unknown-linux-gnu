@@ -79,6 +79,11 @@ COPY curl-${CURL_COMMIT}.patch curl-${CURL_COMMIT}/
 RUN cd curl-${CURL_COMMIT} && \
     patch -p1 < curl-${CURL_COMMIT}.patch
 
+COPY curl-socks5-udp.patch curl-${CURL_COMMIT}/
+
+RUN cd curl-${CURL_COMMIT} && \
+    patch -p1 < curl-socks5-udp.patch
+
 RUN cd curl-${CURL_COMMIT} && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=./installed \
