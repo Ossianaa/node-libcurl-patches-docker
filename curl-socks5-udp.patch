@@ -30,10 +30,10 @@ index c7ba3e20e3..48b06e88a7 100644
  
    if(ctx->state < CF_SETUP_CNNCT_HTTP_PROXY && cf->conn->bits.httpproxy) {
 diff --git a/lib/socks.c b/lib/socks.c
-index a7b5ab07e4..b893cfc225 100644
+index a7b5ab07e4..4b240d87d0 100644
 --- a/lib/socks.c
 +++ b/lib/socks.c
-@@ -1053,6 +1053,389 @@ CONNECT_REQ_SEND:
+@@ -1053,6 +1053,390 @@ CONNECT_REQ_SEND:
    return CURLPX_OK; /* Proxy was successful! */
  }
  
@@ -174,7 +174,8 @@ index a7b5ab07e4..b893cfc225 100644
 +    (void)curlx_nonblock(sockfd, TRUE);
 +
 +    rc = connect(sockfd, ai->ai_addr, (socklen_t)ai->ai_addrlen);
-+    if(rc < 0 && SOCKERRNO != EINPROGRESS) {
++    if(rc < 0 && SOCKERRNO != EINPROGRESS &&
++       SOCKERRNO != EWOULDBLOCK /* WSAEWOULDBLOCK on Windows */) {
 +      sclose(sockfd);
 +      sockfd = CURL_SOCKET_BAD;
 +      continue;
