@@ -33,8 +33,8 @@ ENV CPATH "/usr/aarch64-linux-gnu/include:/usr/local/aarch64-linux-gnu/usr/inclu
 ARG CURL_COMMIT=d755a5f7c009dd63a61b2c745180d8ba937cbfeb
 ARG BORINGSSL_COMMIT=1c7d52ef3e3f373302cb957089fa783d1e5fd8cd
 ARG NGHTTP2_COMMIT=05b792901933664e7aeb7ebb8c87db81123d484a
-ARG NGTCP2_COMMIT=v1.0.1
-ARG NGHTTP3_COMMIT=v1.0.0
+ARG NGTCP2_COMMIT=1.0.1
+ARG NGHTTP3_COMMIT=1.0.0
 ARG CARES_COMMIT=2aa086f822aad5017a6f2061ef656f237a62d0ed
 ARG ZLIB_COMMIT=04f42ceca40f73e2978b50e93806c2a18c1281fc
 ARG ZSTD_COMMIT=a58b48ef0e543980888a4d9d16c9072ff22135ca
@@ -92,7 +92,7 @@ RUN cd boringssl-${BORINGSSL_COMMIT} && \
 
 RUN cp -R boringssl-${BORINGSSL_COMMIT}/include boringssl-${BORINGSSL_COMMIT}/build
 
-RUN curl -L https://github.com/ngtcp2/nghttp3/archive/refs/tags/${NGHTTP3_COMMIT}.tar.gz -o nghttp3-${NGHTTP3_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/ngtcp2/nghttp3/archive/refs/tags/v${NGHTTP3_COMMIT}.tar.gz -o nghttp3-${NGHTTP3_COMMIT}.tar.gz && \
     tar -xf nghttp3-${NGHTTP3_COMMIT}.tar.gz
 
 COPY nghttp3-fp.patch nghttp3-${NGHTTP3_COMMIT}/
@@ -103,7 +103,7 @@ RUN cd nghttp3-${NGHTTP3_COMMIT} && \
     cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 .. && \
     cmake --build . --config Release --target install
 
-RUN curl -L https://github.com/ngtcp2/ngtcp2/archive/refs/tags/${NGTCP2_COMMIT}.tar.gz -o ngtcp2-${NGTCP2_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/ngtcp2/ngtcp2/archive/refs/tags/v${NGTCP2_COMMIT}.tar.gz -o ngtcp2-${NGTCP2_COMMIT}.tar.gz && \
     tar -xf ngtcp2-${NGTCP2_COMMIT}.tar.gz
 
 COPY ngtcp2-fp.patch ngtcp2-${NGTCP2_COMMIT}/
@@ -115,7 +115,7 @@ RUN cd ngtcp2-${NGTCP2_COMMIT} && \
     -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 \
     -DENABLE_BORINGSSL=1 \
     -DBORINGSSL_INCLUDE_DIR=/boringssl-${BORINGSSL_COMMIT}/build/include \
-    -DBORINGSSL_LIBRARIES="/boringssl-${BORINGSSL_COMMIT}/build/lib/libcrypto.a;/boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a" \
+    -DBORINGSSL_LIBRARIES="/boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a;/boringssl-${BORINGSSL_COMMIT}/build/lib/libcrypto.a;stdc++;pthread" \
     .. && \
     cmake --build . --config Release --target install
 
@@ -140,6 +140,7 @@ RUN cd curl-${CURL_COMMIT} && \
     -DBUILD_SHARED_LIBS=0 \
     -DCMAKE_BUILD_TYPE=Release \
     -DOPENSSL_ROOT_DIR=/boringssl-${BORINGSSL_COMMIT}/build/ \
+    -DHAVE_SSL_CTX_SET_QUIC_METHOD=1 \
     -DZLIB_INCLUDE_DIR=/zlib-${ZLIB_COMMIT}/build/installed/include \
     -DZLIB_LIBRARY=/zlib-${ZLIB_COMMIT}/build/installed/lib/libz.a \
     -DUSE_NGHTTP2=1 \
