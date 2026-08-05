@@ -30,10 +30,10 @@ index c7ba3e20e3..48b06e88a7 100644
  
    if(ctx->state < CF_SETUP_CNNCT_HTTP_PROXY && cf->conn->bits.httpproxy) {
 diff --git a/lib/socks.c b/lib/socks.c
-index a7b5ab07e4..b893cfc225 100644
+index a7b5ab07e4..4b240d87d0 100644
 --- a/lib/socks.c
 +++ b/lib/socks.c
-@@ -1053,6 +1053,389 @@ CONNECT_REQ_SEND:
+@@ -1053,6 +1053,390 @@ CONNECT_REQ_SEND:
    return CURLPX_OK; /* Proxy was successful! */
  }
  
@@ -174,7 +174,8 @@ index a7b5ab07e4..b893cfc225 100644
 +    (void)curlx_nonblock(sockfd, TRUE);
 +
 +    rc = connect(sockfd, ai->ai_addr, (socklen_t)ai->ai_addrlen);
-+    if(rc < 0 && SOCKERRNO != EINPROGRESS) {
++    if(rc < 0 && SOCKERRNO != EINPROGRESS &&
++       SOCKERRNO != EWOULDBLOCK /* WSAEWOULDBLOCK on Windows */) {
 +      sclose(sockfd);
 +      sockfd = CURL_SOCKET_BAD;
 +      continue;
@@ -453,22 +454,23 @@ index a3adcc6e91..42bb8c9004 100644
  extern struct Curl_cftype Curl_cft_socks_proxy;
  
  #endif /* CURL_DISABLE_PROXY */
-diff --git a/lib/vquic/curl_quiche.c b/lib/vquic/curl_quiche.c
-index 3f5d327430..8d1990c77f 100644
---- a/lib/vquic/curl_quiche.c
-+++ b/lib/vquic/curl_quiche.c
-@@ -49,6 +49,7 @@
- #include "vtls/openssl.h"
+diff --git a/lib/vquic/curl_ngtcp2.c b/lib/vquic/curl_ngtcp2.c
+index 7d681e5853..eace63985b 100644
+--- a/lib/vquic/curl_ngtcp2.c
++++ b/lib/vquic/curl_ngtcp2.c
+@@ -63,6 +63,8 @@
+ #include "vquic_int.h"
  #include "vtls/keylog.h"
  #include "vtls/vtls.h"
 +#include "socks.h"
++#include "hostip.h"
+ #include "curl_ngtcp2.h"
  
- /* The last 3 #include files should be in this order */
- #include "curl_printf.h"
-@@ -109,6 +110,11 @@ struct cf_quiche_ctx {
-   BIT(goaway);                       /* got GOAWAY from server */
-   BIT(got_first_byte);               /* if first byte was received */
+ #include "warnless.h"
+@@ -166,6 +168,11 @@ struct cf_ngtcp2_ctx {
+ #ifdef USE_OPENSSL
    BIT(x509_store_setup);             /* if x509 store has been set up */
+ #endif
 +  /* SOCKS5 UDP relay support */
 +  char socks5_relay_ip[MAX_IPADR_LEN];
 +  unsigned short socks5_relay_port;
@@ -476,8 +478,33 @@ index 3f5d327430..8d1990c77f 100644
 +  BIT(socks5_udp_relay);             /* TRUE if using SOCKS5 UDP relay */
  };
  
- #ifdef DEBUG_QUICHE
-@@ -1517,6 +1523,13 @@ static CURLcode cf_quiche_connect(struct Curl_cfilter *cf,
+ /* How to access `call_data` from a cf_ngtcp2 filter */
+@@ -2372,6 +2379,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
+             SOCKERRNO == EINTR);
+     }
+ 
++    /* Close the SOCKS5 UDP ASSOCIATE control connection, which
++     * terminates the proxy's UDP relay. */
++    if(ctx->socks5_control_fd != CURL_SOCKET_BAD) {
++      sclose(ctx->socks5_control_fd);
++      ctx->socks5_control_fd = CURL_SOCKET_BAD;
++    }
++
+     cf_ngtcp2_ctx_clear(ctx);
+   }
+ 
+@@ -2387,6 +2401,10 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
+   CF_DATA_SAVE(save, cf, data);
+   CURL_TRC_CF(data, cf, "destroy");
+   if(ctx) {
++    if(ctx->socks5_control_fd != CURL_SOCKET_BAD) {
++      sclose(ctx->socks5_control_fd);
++      ctx->socks5_control_fd = CURL_SOCKET_BAD;
++    }
+     cf_ngtcp2_ctx_clear(ctx);
+     free(ctx);
+   }
+@@ -2570,6 +2588,13 @@ out:
  
      CURL_TRC_CF(data, cf, "connect, remote closed, reconnect after %dms",
                  reconn_delay_ms);
@@ -489,34 +516,10 @@ index 3f5d327430..8d1990c77f 100644
 +      ctx->socks5_control_fd = CURL_SOCKET_BAD;
 +    }
      Curl_conn_cf_close(cf->next, data);
-     cf_quiche_ctx_clear(ctx);
+     cf_ngtcp2_ctx_clear(ctx);
      result = Curl_conn_cf_connect(cf->next, data, FALSE, done);
-@@ -1555,6 +1568,12 @@ static void cf_quiche_close(struct Curl_cfilter *cf, struct Curl_easy *data)
-          outstanding packets, but we also don't want to get stuck here... */
-       (void)cf_flush_egress(cf, data);
-     }
-+    /* Close the SOCKS5 UDP ASSOCIATE control connection, which
-+     * terminates the proxy's UDP relay. */
-+    if(ctx->socks5_control_fd != CURL_SOCKET_BAD) {
-+      sclose(ctx->socks5_control_fd);
-+      ctx->socks5_control_fd = CURL_SOCKET_BAD;
-+    }
-     cf_quiche_ctx_clear(ctx);
-   }
- }
-@@ -1564,6 +1583,10 @@ static void cf_quiche_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
-   struct cf_quiche_ctx *ctx = cf->ctx;
- 
-   (void)data;
-+  if(ctx && ctx->socks5_control_fd != CURL_SOCKET_BAD) {
-+    sclose(ctx->socks5_control_fd);
-+    ctx->socks5_control_fd = CURL_SOCKET_BAD;
-+  }
-   cf_quiche_ctx_clear(ctx);
-   free(ctx);
-   cf->ctx = NULL;
-@@ -1664,20 +1687,115 @@ CURLcode Curl_cf_quiche_create(struct Curl_cfilter **pcf,
-   struct cf_quiche_ctx *ctx = NULL;
+@@ -2704,6 +2729,10 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+   struct cf_ngtcp2_ctx *ctx = NULL;
    struct Curl_cfilter *cf = NULL, *udp_cf = NULL;
    CURLcode result;
 +  const struct Curl_addrinfo *udp_ai = ai;
@@ -525,12 +528,11 @@ index 3f5d327430..8d1990c77f 100644
 +  unsigned short relay_port = 0;
  
    (void)data;
--  (void)conn;
    ctx = calloc(sizeof(*ctx), 1);
-   if(!ctx) {
-     result = CURLE_OUT_OF_MEMORY;
-     goto out;
+@@ -2713,12 +2742,104 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
    }
+   ctx->qlogfd = -1;
+   cf_ngtcp2_ctx_clear(ctx);
 +  ctx->socks5_control_fd = CURL_SOCKET_BAD;
 +
 +#ifndef CURL_DISABLE_PROXY
@@ -633,7 +635,7 @@ index 3f5d327430..8d1990c77f 100644
    if(result)
      goto out;
  
-@@ -1690,6 +1808,12 @@ out:
+@@ -2732,6 +2853,12 @@ out:
    if(result) {
      if(udp_cf)
        Curl_conn_cf_discard_sub(cf, udp_cf, data, TRUE);

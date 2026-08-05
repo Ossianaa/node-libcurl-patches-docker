@@ -1,0 +1,186 @@
+diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/include/openssl/ssl.h boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/include/openssl/ssl.h
+--- pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/include/openssl/ssl.h	2026-08-05 10:01:44.184976100 +0800
++++ boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/include/openssl/ssl.h	2026-08-05 09:46:13.829364400 +0800
+@@ -6265,7 +6265,28 @@
+ 
+ OPENSSL_EXPORT int SSL_CTX_set_ciphersuites(SSL_CTX* ctx, char* str);
+ 
++// SSL_CTX_set_extension_permutation sets the order of ClientHello extensions
++// and restricts the set of extensions sent. |str| is a comma-separated list
++// of 0-based indices into the internal extension table (see
++// ssl/extensions.cc kExtensions). Only the listed extensions are sent, in the
++// given order. An empty or NULL string restores the default order (all
++// extensions).
+ OPENSSL_EXPORT int SSL_CTX_set_extension_permutation(SSL_CTX* ctx, char* str);
++
++// SSL_CTX_set_fp_grease enables or disables TLS-level GREASE (fake ciphers,
++// extensions, groups and versions). BoringSSL forks typically enable GREASE by
++// default; this overrides that default per context. |enable| of 0 disables
++// GREASE, any other value enables it.
++OPENSSL_EXPORT int SSL_CTX_set_fp_grease(SSL_CTX* ctx, int enable);
++
++// SSL_CTX_set_fp_alps configures the ALPS (application settings) protocol and
++// settings advertised in the ClientHello. The default is "h2" with empty
++// settings. Passing |settings| of NULL and |settings_len| of 0 sends empty
++// settings.
++OPENSSL_EXPORT int SSL_CTX_set_fp_alps(SSL_CTX* ctx, const uint8_t* proto,
++                                       size_t proto_len,
++                                       const uint8_t* settings,
++                                       size_t settings_len);
+ // TLSEXT_nid_unknown is a constant used in OpenSSL for
+ // `SSL_get_negotiated_group` to return an unrecognized group. BoringSSL never
+ // returns this value, but we define this constant for compatibility.
+diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/internal.h boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/internal.h
+--- pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/internal.h	2026-08-05 10:01:44.191976200 +0800
++++ boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/internal.h	2026-08-05 09:46:29.770253700 +0800
+@@ -4201,6 +4201,16 @@
+ 
+   bssl::Array<uint8_t> cipher13_flag_list;
+   bssl::Array<uint8_t> extension_permutation;
++
++  // Fingerprint profile configuration (BoringSSL fork). These override the
++  // defaults applied in |SSL_new| so an application can impersonate a
++  // specific ClientHello shape per SSL_CTX.
++  // fp_grease enables or disables TLS-level GREASE. Default: 1 (enabled).
++  int fp_grease;
++  // fp_alps_proto/fp_alps_settings hold the ALPS protocol and settings
++  // advertised in the ClientHello. Default: "h2" with empty settings.
++  bssl::Array<uint8_t> fp_alps_proto;
++  bssl::Array<uint8_t> fp_alps_settings;
+  private:
+   friend RefCounted;
+   ~SSLContext();
+diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/ssl_lib.cc boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/ssl_lib.cc
+--- pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/ssl_lib.cc	2026-08-05 10:01:44.194975900 +0800
++++ boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/ssl_lib.cc	2026-08-05 10:27:35.262900600 +0800
+@@ -398,7 +398,8 @@
+       enable_early_data(false),
+       aes_hw_override(false),
+       aes_hw_override_value(false),
+-      resumption_across_names_enabled(false) {
++      resumption_across_names_enabled(false),
++      fp_grease(true) {
+   CRYPTO_new_ex_data(&ex_data);
+ }
+ 
+@@ -570,10 +571,23 @@
+   ssl->config->handoff = ctx_impl->handoff;
+   ssl->quic_method = ctx_impl->quic_method;
+   SSL_enable_ocsp_stapling(ssl.get());
+-  SSL_add_application_settings(ssl.get(),
+-      reinterpret_cast<const uint8_t*>("h2"),
+-      2, NULL, 0);
+-  SSL_CTX_set_grease_enabled(ssl->ctx.get(), 1);
++  // Fingerprint profile: ALPS protocol/settings and TLS-level GREASE are
++  // configurable per SSL_CTX via SSL_CTX_set_fp_alps/SSL_CTX_set_fp_grease.
++  if (!ssl->ctx->fp_alps_proto.empty()) {
++    SSL_add_application_settings(ssl.get(), ssl->ctx->fp_alps_proto.data(),
++                                 ssl->ctx->fp_alps_proto.size(),
++                                 ssl->ctx->fp_alps_settings.empty()
++                                     ? nullptr
++                                     : ssl->ctx->fp_alps_settings.data(),
++                                 ssl->ctx->fp_alps_settings.size());
++  } else {
++    SSL_add_application_settings(ssl.get(),
++        reinterpret_cast<const uint8_t*>("h2"),
++        2, NULL, 0);
++  }
++  if (ssl->ctx->fp_grease) {
++    SSL_CTX_set_grease_enabled(ssl->ctx.get(), 1);
++  }
+   SSL_enable_signed_cert_timestamps(ssl.get());
+   SSL_set_enable_ech_grease(ssl.get(), 1);
+   SSL_set1_requested_trust_anchors(ssl.get(), nullptr, 0);
+@@ -3680,7 +3694,12 @@
+   int i = 0;
+   const char *l = str;
+   do {
+-    arr[i++] = *l;
++    // '1' = TLS_AES_128_GCM_SHA256, '2' = TLS_AES_256_GCM_SHA384,
++    // '3' = TLS_CHACHA20_POLY1305_SHA256
++    if (*l < '1' || *l > '3') {
++      return 0;
++    }
++    arr[i++] = (uint8_t)(*l - '0');
+   } while (*++l != '\0');
+   auto ctx_ = static_cast<SSLContext*>(ctx);
+   ctx_->cipher13_flag_list = std::move(arr);
+@@ -3688,19 +3707,69 @@
+ }
+ 
+ int SSL_CTX_set_extension_permutation(SSL_CTX *ctx, char *str) {
+-  if (!str) {
++  if (!str || !*str) {
+     return 0;
+   }
+   bssl::Array<uint8_t> arr;
+-  if (!arr.Init(strlen(str))) return 0;
+-  int i = 0;
+-  const char *l = str;
+-  do {
+-    arr[i++] = *l - 1;
+-  } while (*++l != '\0');
++  if (!arr.Init(strlen(str))) {
++    return 0;
++  }
++  size_t n = 0;
++  const char *p = str;
++  while (*p) {
++    while (*p == ',' || *p == ' ' || *p == '\t') {
++      ++p;
++    }
++    if (!*p) {
++      break;
++    }
++    char *end = nullptr;
++    unsigned long v = strtoul(p, &end, 10);
++    if (end == p || v > UINT8_MAX) {
++      // Malformed input: ignore the whole permutation.
++      return 0;
++    }
++    arr[n++] = (uint8_t)v;
++    p = end;
++  }
++  if (n == 0) {
++    return 0;
++  }
++  auto ctx_ = static_cast<SSLContext*>(ctx);
++  bssl::Array<uint8_t> perm;
++  if (!perm.Init(n)) {
++    return 0;
++  }
++  memcpy(perm.data(), arr.data(), n);
++  ctx_->extension_permutation = std::move(perm);
++  return 1;
++}
++
++int SSL_CTX_set_fp_grease(SSL_CTX *ctx, int enable) {
+   auto ctx_ = static_cast<SSLContext*>(ctx);
+-  ctx_->extension_permutation = std::move(arr);
+-  return ctx_->extension_permutation.empty() ? 0 : 1;
++  ctx_->fp_grease = enable ? 1 : 0;
++  return 1;
++}
++
++int SSL_CTX_set_fp_alps(SSL_CTX *ctx, const uint8_t *proto, size_t proto_len,
++                        const uint8_t *settings, size_t settings_len) {
++  auto ctx_ = static_cast<SSLContext*>(ctx);
++  bssl::Array<uint8_t> proto_copy, settings_copy;
++  if (proto_len) {
++    if (!proto_copy.Init(proto_len)) {
++      return 0;
++    }
++    memcpy(proto_copy.data(), proto, proto_len);
++  }
++  if (settings_len) {
++    if (!settings_copy.Init(settings_len)) {
++      return 0;
++    }
++    memcpy(settings_copy.data(), settings, settings_len);
++  }
++  ctx_->fp_alps_proto = std::move(proto_copy);
++  ctx_->fp_alps_settings = std::move(settings_copy);
++  return 1;
+ }
+ 
+ enum ssl_compliance_policy_t SSL_get_compliance_policy(const SSL *ssl) {

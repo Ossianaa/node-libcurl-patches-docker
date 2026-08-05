@@ -1,0 +1,370 @@
+diff -ruN '--exclude=version.h' pristine/ngtcp2-1.0.1/lib/includes/ngtcp2/ngtcp2.h ngtcp2-1.0.1/lib/includes/ngtcp2/ngtcp2.h
+--- pristine/ngtcp2-1.0.1/lib/includes/ngtcp2/ngtcp2.h	2023-10-23 19:41:18.000000000 +0800
++++ ngtcp2-1.0.1/lib/includes/ngtcp2/ngtcp2.h	2026-08-05 11:18:15.297741000 +0800
+@@ -4196,6 +4196,111 @@
+     ngtcp2_conn *conn, uint8_t *dest, size_t destlen);
+ 
+ /**
++ * @enum
++ *
++ * :type:`ngtcp2_tp_entry_type` is the encoding type of a fingerprint
++ * custom transport parameter entry.
++ */
++typedef enum ngtcp2_tp_entry_type {
++  /**
++   * :macro:`NGTCP2_TP_ENTRY_TYPE_VARINT` is a varint parameter.
++   */
++  NGTCP2_TP_ENTRY_TYPE_VARINT,
++  /**
++   * :macro:`NGTCP2_TP_ENTRY_TYPE_CID` is a connection ID parameter
++   * whose value is the local source connection ID.
++   */
++  NGTCP2_TP_ENTRY_TYPE_CID,
++  /**
++   * :macro:`NGTCP2_TP_ENTRY_TYPE_RAW` is a parameter with raw bytes.
++   */
++  NGTCP2_TP_ENTRY_TYPE_RAW,
++  /**
++   * :macro:`NGTCP2_TP_ENTRY_TYPE_GREASE` is a GREASE parameter with
++   * randomly generated ID and value.
++   */
++  NGTCP2_TP_ENTRY_TYPE_GREASE,
++  /**
++   * :macro:`NGTCP2_TP_ENTRY_TYPE_VERSION_INFO` is the
++   * version_information parameter.
++   */
++  NGTCP2_TP_ENTRY_TYPE_VERSION_INFO,
++} ngtcp2_tp_entry_type;
++
++/**
++ * @struct
++ *
++ * :type:`ngtcp2_tp_entry` is a single entry of a fingerprint custom
++ * transport parameter list.  See
++ * :member:`ngtcp2_conn_set_local_transport_params_custom`.
++ */
++typedef struct ngtcp2_tp_entry {
++  /**
++   * :member:`type` is the encoding type of the entry.
++   */
++  ngtcp2_tp_entry_type type;
++  /**
++   * :member:`id` is the transport parameter ID.
++   */
++  uint64_t id;
++  /**
++   * :member:`value` is the value for
++   * :macro:`NGTCP2_TP_ENTRY_TYPE_VARINT` (varint value) and
++   * :macro:`NGTCP2_TP_ENTRY_TYPE_VERSION_INFO` (chosen version).
++   * Ignored otherwise.
++   */
++  uint64_t value;
++  /**
++   * :member:`data` is the value for
++   * :macro:`NGTCP2_TP_ENTRY_TYPE_RAW` (raw bytes) and
++   * :macro:`NGTCP2_TP_ENTRY_TYPE_VERSION_INFO` (available versions,
++   * four bytes each).  Ignored otherwise.
++   */
++  const uint8_t *data;
++  /**
++   * :member:`datalen` is the length of :member:`data`.
++   */
++  size_t datalen;
++} ngtcp2_tp_entry;
++
++/**
++ * @function
++ *
++ * `ngtcp2_conn_set_local_transport_params_custom` replaces the
++ * transport parameters sent in the TLS handshake with exactly the
++ * entries in |entries| of length |nentries|, in the given order.
++ *
++ * This is used to impersonate a specific QUIC transport parameter
++ * fingerprint.  The entries are copied, so |entries| (and any data it
++ * points to) can be freed after this call returns.
++ *
++ * Entry types:
++ *
++ * :macro:`NGTCP2_TP_ENTRY_TYPE_VARINT`
++ *     A varint parameter with the given |id| and |value|.
++ * :macro:`NGTCP2_TP_ENTRY_TYPE_CID`
++ *     A connection ID parameter with the given |id| and the local
++ *     source connection ID (typically empty for a zero-length SCID).
++ * :macro:`NGTCP2_TP_ENTRY_TYPE_RAW`
++ *     A parameter with the given |id| and raw bytes from |data|.
++ * :macro:`NGTCP2_TP_ENTRY_TYPE_GREASE`
++ *     A GREASE parameter: the ID and value are generated randomly at
++ *     encode time.
++ * :macro:`NGTCP2_TP_ENTRY_TYPE_VERSION_INFO`
++ *     The version_information parameter: |value| is the chosen
++ *     version, |data| the available versions (four bytes each),
++ *     written verbatim.
++ *
++ * This function returns 0 if it succeeds, or one of the following
++ * negative error codes:
++ *
++ * :macro:`NGTCP2_ERR_NOMEM`
++ *     Out of memory.
++ */
++NGTCP2_EXTERN int ngtcp2_conn_set_local_transport_params_custom(
++    ngtcp2_conn *conn, const ngtcp2_tp_entry *entries, size_t nentries);
++
++/**
+  * @function
+  *
+  * `ngtcp2_conn_open_bidi_stream` opens new bidirectional stream.  The
+diff -ruN '--exclude=version.h' pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.c ngtcp2-1.0.1/lib/ngtcp2_conn.c
+--- pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.c	2023-10-23 19:41:18.000000000 +0800
++++ ngtcp2-1.0.1/lib/ngtcp2_conn.c	2026-08-05 15:47:20.593679400 +0800
+@@ -1599,6 +1599,15 @@
+   pktns_del(conn->hs_pktns, conn->mem);
+   pktns_del(conn->in_pktns, conn->mem);
+ 
++  if (conn->custom_tp) {
++    size_t i;
++
++    for (i = 0; i < conn->custom_tp_len; ++i) {
++      ngtcp2_mem_free(conn->mem, (uint8_t *)conn->custom_tp[i].data);
++    }
++    ngtcp2_mem_free(conn->mem, conn->custom_tp);
++  }
++
+   ngtcp2_mem_free(conn->mem, conn->qlog.buf.begin);
+ 
+   ngtcp2_pmtud_del(conn->pmtud);
+@@ -11683,13 +11692,219 @@
+   return &conn->local.transport_params;
+ }
+ 
++/*
++ * conn_custom_tp_entry_len returns the encoded length of a single
++ * fingerprint transport parameter entry.
++ */
++static size_t conn_custom_tp_entry_len(const ngtcp2_conn *conn,
++                                       const ngtcp2_tp_entry *ent) {
++  size_t len = ngtcp2_put_uvarintlen(ent->id);
++
++  switch (ent->type) {
++  case NGTCP2_TP_ENTRY_TYPE_VARINT:
++    return len + ngtcp2_put_uvarintlen(ngtcp2_put_uvarintlen(ent->value)) +
++           ngtcp2_put_uvarintlen(ent->value);
++  case NGTCP2_TP_ENTRY_TYPE_CID:
++    return len + ngtcp2_put_uvarintlen(conn->oscid.datalen) +
++           conn->oscid.datalen;
++  case NGTCP2_TP_ENTRY_TYPE_RAW:
++    return len + ngtcp2_put_uvarintlen(ent->datalen) + ent->datalen;
++  case NGTCP2_TP_ENTRY_TYPE_GREASE:
++    /* GREASE ID is a random 60-bit varint (8-byte uvarint), value is
++       2 random bytes. */
++    return 8 + 1 + 2;
++  case NGTCP2_TP_ENTRY_TYPE_VERSION_INFO:
++    /* 4 chosen + datalen available versions (verbatim). */
++    return len + ngtcp2_put_uvarintlen(4 + ent->datalen) +
++           4 + ent->datalen;
++  default:
++    ngtcp2_unreachable();
++  }
++}
++
++/*
++ * conn_generate_grease_version fills |greasebuf| (4 bytes) with a
++ * GREASE QUIC version (0x?a?a?a?a pattern).
++ */
++static void conn_generate_grease_version(ngtcp2_conn *conn,
++                                         uint8_t *greasebuf) {
++  uint8_t randbuf[4];
++
++  conn->callbacks.rand(randbuf, sizeof(randbuf), &conn->local.settings.rand_ctx);
++  greasebuf[0] = 0x0a | (randbuf[0] & 0xf0);
++  greasebuf[1] = 0x1a | (randbuf[1] & 0xf0);
++  greasebuf[2] = 0x2a | (randbuf[2] & 0xf0);
++  greasebuf[3] = 0x3a | (randbuf[3] & 0xf0);
++}
++
++/*
++ * conn_generate_grease_id fills |p| (8 bytes) with the GREASE transport
++ * parameter ID value used by Chrome (0x10bd660917c6e651).  It is written
++ * as a regular varint (first byte 0xc4...): fp.impersonate.pro reports
++ * this as GREASE with id 0x10bd660917c6e600, matching the Chrome 151
++ * sample.
++ */
++static void conn_generate_grease_id(ngtcp2_conn *conn, uint8_t *p) {
++  static const uint8_t chrome_grease_id[8] = {
++      0x10, 0xbd, 0x66, 0x09, 0x17, 0xc6, 0xe6, 0x51};
++
++  (void)conn;
++  memcpy(p, chrome_grease_id, 8);
++}
++
++/*
++ * conn_generate_grease_value fills |p| (2 bytes) with a random GREASE
++ * value (Chrome randomizes it per connection).
++ */
++static void conn_generate_grease_value(ngtcp2_conn *conn, uint8_t *p) {
++  uint8_t randbuf[2];
++
++  conn->callbacks.rand(randbuf, sizeof(randbuf), &conn->local.settings.rand_ctx);
++  p[0] = randbuf[0];
++  p[1] = randbuf[1];
++}
++
+ ngtcp2_ssize ngtcp2_conn_encode_local_transport_params(ngtcp2_conn *conn,
+                                                        uint8_t *dest,
+                                                        size_t destlen) {
++  if (conn->custom_tp_len) {
++    size_t i, len = 0;
++    uint8_t greasebuf[4];
++
++    for (i = 0; i < conn->custom_tp_len; ++i) {
++      len += conn_custom_tp_entry_len(conn, &conn->custom_tp[i]);
++    }
++
++    if (dest == NULL && destlen == 0) {
++      return (ngtcp2_ssize)len;
++    }
++
++    if (destlen < len) {
++      return NGTCP2_ERR_NOBUF;
++    }
++
++    {
++      uint8_t *p = dest;
++
++      for (i = 0; i < conn->custom_tp_len; ++i) {
++        const ngtcp2_tp_entry *ent = &conn->custom_tp[i];
++
++        switch (ent->type) {
++        case NGTCP2_TP_ENTRY_TYPE_GREASE: {
++          uint8_t greaseidbuf[8];
++          uint8_t greasevaluebuf[2];
++          uint64_t id = 0;
++          size_t j;
++
++          conn_generate_grease_id(conn, greaseidbuf);
++          conn_generate_grease_value(conn, greasevaluebuf);
++          for (j = 0; j < 8; ++j) {
++            id = (id << 8) | greaseidbuf[j];
++          }
++          p = ngtcp2_put_uvarint(p, id);
++          p = ngtcp2_put_uvarint(p, 2);
++          p = ngtcp2_cpymem(p, greasevaluebuf, 2);
++          break;
++        }
++        case NGTCP2_TP_ENTRY_TYPE_VARINT:
++          p = ngtcp2_put_uvarint(p, ent->id);
++          p = ngtcp2_put_uvarint(p, ngtcp2_put_uvarintlen(ent->value));
++          p = ngtcp2_put_uvarint(p, ent->value);
++          break;
++        case NGTCP2_TP_ENTRY_TYPE_CID:
++          p = ngtcp2_put_uvarint(p, ent->id);
++          p = ngtcp2_put_uvarint(p, conn->oscid.datalen);
++          if (conn->oscid.datalen) {
++            p = ngtcp2_cpymem(p, conn->oscid.data, conn->oscid.datalen);
++          }
++          break;
++        case NGTCP2_TP_ENTRY_TYPE_RAW:
++          p = ngtcp2_put_uvarint(p, ent->id);
++          p = ngtcp2_put_uvarint(p, ent->datalen);
++          if (ent->datalen) {
++            p = ngtcp2_cpymem(p, ent->data, ent->datalen);
++          }
++          break;
++        case NGTCP2_TP_ENTRY_TYPE_VERSION_INFO:
++          p = ngtcp2_put_uvarint(p, ent->id);
++          p = ngtcp2_put_uvarint(p, 4 + ent->datalen);
++          p = ngtcp2_put_uint32be(p, (uint32_t)ent->value);
++          if (ent->datalen) {
++            p = ngtcp2_cpymem(p, ent->data, ent->datalen);
++          }
++          break;
++        default:
++          ngtcp2_unreachable();
++        }
++      }
++
++      return (ngtcp2_ssize)(p - dest);
++    }
++  }
++
+   return ngtcp2_transport_params_encode(dest, destlen,
+                                         &conn->local.transport_params);
+ }
+ 
++int ngtcp2_conn_set_local_transport_params_custom(ngtcp2_conn *conn,
++                                                  const ngtcp2_tp_entry *entries,
++                                                  size_t nentries) {
++  ngtcp2_tp_entry *copy = NULL;
++  size_t i;
++
++  if (nentries == 0) {
++    conn->custom_tp_len = 0;
++    if (conn->custom_tp) {
++      ngtcp2_mem_free(conn->mem, conn->custom_tp);
++      conn->custom_tp = NULL;
++    }
++    return 0;
++  }
++
++  copy = ngtcp2_mem_malloc(conn->mem, sizeof(ngtcp2_tp_entry) * nentries);
++  if (copy == NULL) {
++    return NGTCP2_ERR_NOMEM;
++  }
++
++  for (i = 0; i < nentries; ++i) {
++    uint8_t *datacopy = NULL;
++
++    if (entries[i].type == NGTCP2_TP_ENTRY_TYPE_RAW ||
++        entries[i].type == NGTCP2_TP_ENTRY_TYPE_VERSION_INFO) {
++      if (entries[i].datalen) {
++        datacopy = ngtcp2_mem_malloc(conn->mem, entries[i].datalen);
++        if (datacopy == NULL) {
++          size_t j;
++
++          for (j = 0; j < i; ++j) {
++            ngtcp2_mem_free(conn->mem, (uint8_t *)copy[j].data);
++          }
++          ngtcp2_mem_free(conn->mem, copy);
++          return NGTCP2_ERR_NOMEM;
++        }
++        memcpy(datacopy, entries[i].data, entries[i].datalen);
++      }
++    }
++
++    copy[i] = entries[i];
++    copy[i].data = datacopy;
++  }
++
++  if (conn->custom_tp) {
++    size_t j;
++
++    for (j = 0; j < conn->custom_tp_len; ++j) {
++      ngtcp2_mem_free(conn->mem, (uint8_t *)conn->custom_tp[j].data);
++    }
++    ngtcp2_mem_free(conn->mem, conn->custom_tp);
++  }
++
++  conn->custom_tp = copy;
++  conn->custom_tp_len = nentries;
++
++  return 0;
++}
++
+ int ngtcp2_conn_open_bidi_stream(ngtcp2_conn *conn, int64_t *pstream_id,
+                                  void *stream_user_data) {
+   int rv;
+diff -ruN '--exclude=version.h' pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.h ngtcp2-1.0.1/lib/ngtcp2_conn.h
+--- pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.h	2023-10-23 19:41:18.000000000 +0800
++++ ngtcp2-1.0.1/lib/ngtcp2_conn.h	2026-08-05 09:49:30.221811800 +0800
+@@ -358,6 +358,12 @@
+   ngtcp2_objalloc strm_objalloc;
+   ngtcp2_conn_state state;
+   ngtcp2_callbacks callbacks;
++  /* custom_tp is the fingerprint transport parameter list.  If
++     custom_tp_len is nonzero, the TLS transport parameters are built
++     exclusively from these entries, in order.  Owned by the
++     connection. */
++  ngtcp2_tp_entry *custom_tp;
++  size_t custom_tp_len;
+   /* rcid is a connection ID present in Initial or 0-RTT packet from
+      client as destination connection ID.  Server uses this field to
+      check that duplicated Initial or 0-RTT packet are indeed sent to

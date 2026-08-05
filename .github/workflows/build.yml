@@ -12,90 +12,9 @@ env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  build-quiche:
-    strategy:
-      matrix:
-        settings:
-          - host: windows-latest
-            build: |
-              cargo build --package quiche --release --target=x86_64-pc-windows-msvc --features ffi,pkg-config-meta,qlog --no-default-features
-            target: x86_64-pc-windows-msvc
-
-          - host: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            build: >-
-              cargo build --package quiche --release --target=x86_64-unknown-linux-gnu --features ffi,pkg-config-meta,qlog --no-default-features
-
-          - host: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
-            build: >-
-              set -e &&
-              export JEMALLOC_SYS_WITH_LG_PAGE=16 &&
-              rustup toolchain install nightly --profile minimal &&
-              rustup default nightly &&
-              rustup target add aarch64-unknown-linux-gnu --toolchain nightly &&
-              cargo build --package quiche --release --target=aarch64-unknown-linux-gnu --features ffi,pkg-config-meta,qlog --no-default-features
-         
-          - host: macos-latest
-            target: x86_64-apple-darwin
-            build: |
-              cargo build --package quiche --release --target=x86_64-apple-darwin --features ffi,pkg-config-meta,qlog --no-default-features;
-      
-          - host: macos-latest
-            target: aarch64-apple-darwin
-            build: |
-              sudo rm -Rf /Library/Developer/CommandLineTools/SDKs/*;
-              export CC=$(xcrun -f clang);
-              export CXX=$(xcrun -f clang++);
-              SYSROOT=$(xcrun --sdk macosx --show-sdk-path);
-              export CFLAGS="-isysroot $SYSROOT -isystem $SYSROOT";
-              cargo build --package quiche --release --target=aarch64-apple-darwin --features ffi,pkg-config-meta,qlog --no-default-features;
-          
-    name: "Build quiche"
-    runs-on: ${{ matrix.settings.host }}  
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-      - name: Fetch quiche
-        run: |
-          git clone -b build-with-curl https://github.com/Ossianaa/quiche
-      - name: Install
-        uses: dtolnay/rust-toolchain@stable
-        if: ${{ !matrix.settings.docker }}
-        with:
-          targets: ${{ matrix.settings.target }}
-      - name: Build in docker
-        uses: maus007/docker-run-action@v1
-        if: ${{ matrix.settings.docker }}
-        with:
-          image: ${{ matrix.settings.docker }}
-          options: -v ${{ env.HOME }}/.cargo/git:/root/.cargo/git -v ${{ env.HOME }}/.cargo/registry:/root/.cargo/registry -v ${{ github.workspace }}:/build -w /build
-          run: >-
-            cd quiche
-            ${{ matrix.settings.build }}
-      - name: Build
-        working-directory: ./quiche
-        if: ${{ !matrix.settings.docker }}
-        run: ${{ matrix.settings.build }}
-        shell: bash
-      - name: ls
-        run: |
-          ls
-          ls quiche
-        shell: bash
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: quiche-${{ matrix.settings.target }}
-          path: |
-            quiche/target/${{ matrix.settings.target }}/release/*.a
-            quiche/target/${{ matrix.settings.target }}/release/*.lib
-
   build-x86_64-unknown-linux-gnu:
     name: Build (x86_64-unknown-linux-gnu)
     runs-on: ubuntu-latest
-    needs: [build-quiche]
     steps:
       - name: Check out the repository
         uses: actions/checkout@v2
@@ -103,23 +22,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
 
-      - name: Download quiche artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: quiche-x86_64-unknown-linux-gnu
-          path: ./quiche
-
-      - name: Copy quiche header
-        run: |
-          cp ./quiche.h ./quiche
-        shell: bash
-
       - name: Build the Docker image
         run: docker build . -f Dockerfile-x86_64-unknown-linux-gnu -t curl_x86_64-unknown-linux-gnu
 
       - name: Run the Docker container
         run: docker run --rm -v ./output:/output curl_x86_64-unknown-linux-gnu
-      
+
       - name: Compress as tar
         run: |
           tar -czf ./curl_x86_64-unknown-linux-gnu.tar.gz -C ./output .
@@ -129,11 +37,10 @@ jobs:
         with:
           name: curl_x86_64-unknown-linux-gnu.tar.gz
           path: ./output
-          
+
   build-arm64-unknown-linux-gnu:
     name: Build (arm64-unknown-linux-gnu)
     runs-on: ubuntu-latest
-    needs: [build-quiche]
     steps:
       - name: Check out the repository
         uses: actions/checkout@v2
@@ -141,23 +48,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
 
-      - name: Download quiche artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: quiche-x86_64-unknown-linux-gnu
-          path: ./quiche
-
-      - name: Copy quiche header
-        run: |
-          cp ./quiche.h ./quiche
-        shell: bash
-
       - name: Build the Docker image
         run: docker build . -f Dockerfile-arm64-unknown-linux-gnu -t curl_arm64-unknown-linux-gnu
 
       - name: Run the Docker container
         run: docker run --rm -v ./output:/output curl_arm64-unknown-linux-gnu
-      
+
       - name: Compress as tar
         run: |
           tar -czf ./curl_arm64-unknown-linux-gnu.tar.gz -C ./output .
@@ -171,7 +67,6 @@ jobs:
   build-x86_64-pc-windows-msvc:
     name: Build (x86_64-pc-windows-msvc)
     runs-on: ubuntu-latest
-    needs: [build-quiche]
     steps:
       - name: Check out the repository
         uses: actions/checkout@v2
@@ -179,28 +74,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
 
-      - name: Download quiche artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: quiche-x86_64-pc-windows-msvc
-          path: ./quiche
-
-      - name: Copy quiche header
-        run: |
-          cp ./quiche.h ./quiche
-        shell: bash
       - name: Build the Docker image
         run: docker build . -f Dockerfile-x86_64-pc-windows-msvc -t curl_x86_64-pc-windows-msvc
 
       - name: Run the Docker container
         run: docker run --name win_docker curl_x86_64-pc-windows-msvc
-      
+
       - name: Copy file from the Docker container
         run: |
           mkdir ./output
           docker cp win_docker:/home/wine/.wine/drive_c/curl/build/lib/libcurl.dll ./output
           docker cp win_docker:/home/wine/.wine/drive_c/curl/build/lib/libcurl_imp.lib ./output
-      
+
       - name: Compress as tar
         run: |
           tar -czf ./curl_x86_64-pc-windows-msvc.tar.gz -C ./output .
@@ -214,30 +99,19 @@ jobs:
   build-x86_64-apple-darwin:
     name: Build (x86_64-apple-darwin)
     runs-on: ubuntu-latest
-    needs: [build-quiche]
     steps:
       - name: Check out the repository
         uses: actions/checkout@v2
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
-     
-      - name: Download quiche artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: quiche-x86_64-apple-darwin
-          path: ./quiche
 
-      - name: Copy quiche header
-        run: |
-          cp ./quiche.h ./quiche
-        shell: bash
       - name: Build the Docker image
         run: docker build . -f Dockerfile-x86_64-apple-darwin -t curl_x86_64-apple-darwin
 
       - name: Run the Docker container
         run: docker run --rm -v ./output:/output curl_x86_64-apple-darwin
-      
+
       - name: Compress as tar
         run: |
           tar -czf ./curl_x86_64-apple-darwin.tar.gz -C ./output .
@@ -251,7 +125,6 @@ jobs:
   build-arm64-apple-darwin:
       name: Build (arm64-apple-darwin)
       runs-on: ubuntu-latest
-      needs: [build-quiche]
       steps:
         - name: Check out the repository
           uses: actions/checkout@v2
@@ -259,23 +132,12 @@ jobs:
         - name: Set up Docker Buildx
           uses: docker/setup-buildx-action@v1
 
-        - name: Download quiche artifacts
-          uses: actions/download-artifact@v4
-          with:
-            name: quiche-aarch64-apple-darwin
-            path: ./quiche
-
-        - name: Copy quiche header
-          run: |
-            cp ./quiche.h ./quiche
-          shell: bash
-          
         - name: Build the Docker image
           run: docker build . -f Dockerfile-arm64-apple-darwin -t curl_arm64-apple-darwin
 
         - name: Run the Docker container
           run: docker run --rm -v ./output:/output curl_arm64-apple-darwin
-        
+
         - name: Compress as tar
           run: |
             tar -czf ./curl_arm64-apple-darwin.tar.gz -C ./output .
@@ -285,7 +147,7 @@ jobs:
           with:
             name: curl_arm64-apple-darwin.tar.gz
             path: ./output
-  
+
   release:
     runs-on: ubuntu-latest
     needs: [build-x86_64-unknown-linux-gnu,build-arm64-unknown-linux-gnu,build-x86_64-pc-windows-msvc,build-x86_64-apple-darwin,build-arm64-apple-darwin]
@@ -346,5 +208,5 @@ jobs:
            for file in ./output/*; do
             gh release upload $RELEASE_VERSION $file --clobber
           done
-        env: 
+        env:
           RELEASE_VERSION: ${{ env.RELEASE_VERSION }}

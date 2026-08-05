@@ -1,33 +1,24 @@
-FROM ubuntu:22.04 as stage1
-ENV PATH /usr/local/osxcross/bin:${PATH}
+FROM ubuntu:20.04 as stage1
+
+ARG CURL_COMMIT=d755a5f7c009dd63a61b2c745180d8ba937cbfeb
+ARG BORINGSSL_COMMIT=1c7d52ef3e3f373302cb957089fa783d1e5fd8cd
+ARG NGHTTP2_COMMIT=05b792901933664e7aeb7ebb8c87db81123d484a
+ARG NGTCP2_COMMIT=1.0.1
+ARG NGHTTP3_COMMIT=1.0.0
+ARG ZLIB_COMMIT=04f42ceca40f73e2978b50e93806c2a18c1281fc
+ARG ZSTD_COMMIT=a58b48ef0e543980888a4d9d16c9072ff22135ca
+ARG BROTLI_COMMIT=71fe6cac061ac62c0241f410fbd43a04a6b4f303
+
 ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+
+RUN sed -i 's@archive.ubuntu.com@mirrors.aliyun.com@g; s@security.ubuntu.com@mirrors.aliyun.com@g' /etc/apt/sources.list
+
+
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    ca-certificates \
-    clang \
-    clang-tidy \
-    file \
-    gawk \
-    git \
-    libgmp-dev \
-    libmpc-dev \
-    libmpfr-dev \
-    libssl-dev \
-    libxml2-dev \
-    llvm \
-    lzma-dev \
-    make \
-    ninja-build \
-    patch \
-    python3-pip \
-    wget \
-    xz-utils \
-    zlib1g-dev \
-    curl \
-    golang \
-    ninja-build \
-    && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y build-essential
+
+RUN apt-get install -y curl golang ninja-build
 
 ARG CMAKE_VERSION=3.22.6
 
@@ -36,66 +27,39 @@ RUN curl -L -k https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSI
     /tmp/cmake-install.sh --skip-license --prefix=/usr/local && \
     rm -f /tmp/cmake-install.sh
 
-RUN pip3 install conan==1.62.0 && \
-    git clone https://github.com/tpoechtrager/osxcross.git && \
-    wget -O osxcross/tarballs/MacOSX11.3.sdk.tar.xz https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.3.sdk.tar.xz && \
-    cd osxcross && \
-    echo 'cd4f08a75577145b8f05245a2975f7c81401d75e9535dcffbb879ee1deefcbf4  tarballs/MacOSX11.3.sdk.tar.xz' | shasum -c && \
-    mkdir -p /usr/local/osxcross && \
-    env TARGET_DIR=/usr/local/osxcross UNATTENDED=1 ./build.sh && ./build_compiler_rt.sh && \
-    cd / && \
-    rm -rf osxcross
-ENV CXX "x86_64-apple-darwin20.4-clang++"
-ENV CC "x86_64-apple-darwin20.4-clang"
-ENV CROSSBUILD "x86_64-apple-darwin"
-ENV CPPFLAGS "-mmacosx-version-min=10.15"
-
-
-ARG CURL_COMMIT=d755a5f7c009dd63a61b2c745180d8ba937cbfeb
-ARG BORINGSSL_COMMIT=1c7d52ef3e3f373302cb957089fa783d1e5fd8cd
-ARG NGHTTP2_COMMIT=05b792901933664e7aeb7ebb8c87db81123d484a
-ARG NGTCP2_COMMIT=v1.0.1
-ARG NGHTTP3_COMMIT=v1.0.0
-ARG ZLIB_COMMIT=04f42ceca40f73e2978b50e93806c2a18c1281fc
-ARG ZSTD_COMMIT=a58b48ef0e543980888a4d9d16c9072ff22135ca
-ARG BROTLI_COMMIT=71fe6cac061ac62c0241f410fbd43a04a6b4f303
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=Etc/UTC
-
-RUN curl -L -k https://github.com/google/brotli/archive/${BROTLI_COMMIT}.tar.gz -o brotli-${BROTLI_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/google/brotli/archive/${BROTLI_COMMIT}.tar.gz -o brotli-${BROTLI_COMMIT}.tar.gz && \
     tar -xf brotli-${BROTLI_COMMIT}.tar.gz
 
 RUN cd brotli-${BROTLI_COMMIT} && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DCMAKE_SYSTEM_NAME="Darwin" -DBUILD_SHARED_LIBS=0 .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DBUILD_SHARED_LIBS=0 .. && \
     cmake --build . --config Release --target install
 
-RUN curl -L -k https://github.com/facebook/zstd/archive/${ZSTD_COMMIT}.tar.gz -o zstd-${ZSTD_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/facebook/zstd/archive/${ZSTD_COMMIT}.tar.gz -o zstd-${ZSTD_COMMIT}.tar.gz && \
     tar -xf zstd-${ZSTD_COMMIT}.tar.gz
 
 RUN cd zstd-${ZSTD_COMMIT} && \
     cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DCMAKE_SYSTEM_NAME="Darwin"  ./cmake && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed ./cmake && \
     cmake --build . --config Release --target install
 
-RUN curl -L -k https://github.com/madler/zlib/archive/${ZLIB_COMMIT}.tar.gz -o zlib-${ZLIB_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/madler/zlib/archive/${ZLIB_COMMIT}.tar.gz -o zlib-${ZLIB_COMMIT}.tar.gz && \
     tar -xf zlib-${ZLIB_COMMIT}.tar.gz
 
 RUN cd zlib-${ZLIB_COMMIT} && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DCMAKE_SYSTEM_NAME="Darwin" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.3 .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed .. && \
     cmake --build . --config Release --target install
 
-RUN curl -L -k https://github.com/nghttp2/nghttp2/archive/${NGHTTP2_COMMIT}.tar.gz -o nghttp2-${NGHTTP2_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/nghttp2/nghttp2/archive/${NGHTTP2_COMMIT}.tar.gz -o nghttp2-${NGHTTP2_COMMIT}.tar.gz && \
     tar -xf nghttp2-${NGHTTP2_COMMIT}.tar.gz
 
 RUN cd nghttp2-${NGHTTP2_COMMIT} && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DCMAKE_SYSTEM_NAME="Darwin"  -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 .. && \
     cmake --build . --config Release --target install
 
-RUN curl -L -k https://github.com/google/boringssl/archive/${BORINGSSL_COMMIT}.tar.gz -o boringssl-${BORINGSSL_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/google/boringssl/archive/${BORINGSSL_COMMIT}.tar.gz -o boringssl-${BORINGSSL_COMMIT}.tar.gz && \
     tar -xf boringssl-${BORINGSSL_COMMIT}.tar.gz
 
 COPY boringssl-${BORINGSSL_COMMIT}.patch boringssl-${BORINGSSL_COMMIT}/
@@ -107,12 +71,12 @@ RUN cd boringssl-${BORINGSSL_COMMIT} && \
 
 RUN cd boringssl-${BORINGSSL_COMMIT} && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF  -DBENCHMARK_ENABLE_TESTING=OFF -DCMAKE_INSTALL_PREFIX=./installed -DCMAKE_SYSTEM_NAME="Darwin"  -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=1 -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=./lib -DCMAKE_CXX_FLAGS="-D_LIBCPP_DISABLE_AVAILABILITY" -GNinja .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF  -DBENCHMARK_ENABLE_TESTING=OFF -DCMAKE_INSTALL_PREFIX=./installed -DBUILD_SHARED_LIBS=0 -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=./lib -DCMAKE_POSITION_INDEPENDENT_CODE=1 -GNinja .. && \
     ninja ssl crypto
 
 RUN cp -R boringssl-${BORINGSSL_COMMIT}/include boringssl-${BORINGSSL_COMMIT}/build
 
-RUN curl -L -k https://github.com/ngtcp2/nghttp3/archive/refs/tags/${NGHTTP3_COMMIT}.tar.gz -o nghttp3-${NGHTTP3_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/ngtcp2/nghttp3/archive/refs/tags/v${NGHTTP3_COMMIT}.tar.gz -o nghttp3-${NGHTTP3_COMMIT}.tar.gz && \
     tar -xf nghttp3-${NGHTTP3_COMMIT}.tar.gz
 
 COPY nghttp3-fp.patch nghttp3-${NGHTTP3_COMMIT}/
@@ -120,10 +84,10 @@ COPY nghttp3-fp.patch nghttp3-${NGHTTP3_COMMIT}/
 RUN cd nghttp3-${NGHTTP3_COMMIT} && \
     patch -p1 < nghttp3-fp.patch && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DCMAKE_SYSTEM_NAME="Darwin" -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 .. && \
     cmake --build . --config Release --target install
 
-RUN curl -L -k https://github.com/ngtcp2/ngtcp2/archive/refs/tags/${NGTCP2_COMMIT}.tar.gz -o ngtcp2-${NGTCP2_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/ngtcp2/ngtcp2/archive/refs/tags/v${NGTCP2_COMMIT}.tar.gz -o ngtcp2-${NGTCP2_COMMIT}.tar.gz && \
     tar -xf ngtcp2-${NGTCP2_COMMIT}.tar.gz
 
 COPY ngtcp2-fp.patch ngtcp2-${NGTCP2_COMMIT}/
@@ -132,36 +96,35 @@ RUN cd ngtcp2-${NGTCP2_COMMIT} && \
     patch -p1 < ngtcp2-fp.patch && \
     mkdir build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed \
-    -DCMAKE_SYSTEM_NAME="Darwin" \
     -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 \
     -DENABLE_BORINGSSL=1 \
     -DBORINGSSL_INCLUDE_DIR=/boringssl-${BORINGSSL_COMMIT}/build/include \
-    -DBORINGSSL_LIBRARIES="/boringssl-${BORINGSSL_COMMIT}/build/lib/libcrypto.a;/boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a" \
+    -DBORINGSSL_LIBRARIES="/boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a;/boringssl-${BORINGSSL_COMMIT}/build/lib/libcrypto.a;stdc++;pthread" \
     .. && \
     cmake --build . --config Release --target install
 
-RUN curl -L -k https://github.com/curl/curl/archive/${CURL_COMMIT}.tar.gz -o curl-${CURL_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/curl/curl/archive/${CURL_COMMIT}.tar.gz -o curl-${CURL_COMMIT}.tar.gz && \
     tar -xf curl-${CURL_COMMIT}.tar.gz
 
 COPY curl-${CURL_COMMIT}.patch curl-${CURL_COMMIT}/
-
-RUN cd curl-${CURL_COMMIT} && \
-    patch -p1 < curl-${CURL_COMMIT}.patch
-
 COPY curl-socks5-udp.patch curl-${CURL_COMMIT}/
 COPY curl-h3fp.patch curl-${CURL_COMMIT}/
 
 RUN cd curl-${CURL_COMMIT} && \
+    patch -p1 < curl-${CURL_COMMIT}.patch && \
     patch -p1 < curl-socks5-udp.patch && \
     patch -p1 < curl-h3fp.patch
+
+COPY test-fp.c /
+
 
 RUN cd curl-${CURL_COMMIT} && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=./installed \
-    -DCMAKE_SYSTEM_NAME="Darwin" \
     -DBUILD_SHARED_LIBS=0 \
     -DCMAKE_BUILD_TYPE=Release \
     -DOPENSSL_ROOT_DIR=/boringssl-${BORINGSSL_COMMIT}/build/ \
+    -DHAVE_SSL_CTX_SET_QUIC_METHOD=1 \
     -DZLIB_INCLUDE_DIR=/zlib-${ZLIB_COMMIT}/build/installed/include \
     -DZLIB_LIBRARY=/zlib-${ZLIB_COMMIT}/build/installed/lib/libz.a \
     -DUSE_NGHTTP2=1 \
@@ -181,13 +144,12 @@ RUN cd curl-${CURL_COMMIT} && \
     -DBROTLIDEC_LIBRARY=/brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlidec.a \
     -DBROTLICOMMON_LIBRARY=/brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlicommon.a \
     -DENABLE_WEBSOCKETS=1 \
-    -DBUILD_CURL_EXE=0 \
+    -DBUILD_CURL_EXE=1 \
     -DCMAKE_POSITION_INDEPENDENT_CODE=1 \
-    -DSYSTEMCONFIGURATION_FRAMEWORK="/usr/local/Frameworks" \
-    -DCOREFOUNDATION_FRAMEWORK="/usr/local/osxcross/SDK/MacOSX11.3.sdk/System/Library/Frameworks/CoreFoundation.framework" \
-    -DCORESERVICES_FRAMEWORK="/usr/local/osxcross/SDK/MacOSX11.3.sdk/System/Library/Frameworks/CoreServices.framework" \
+    -DCMAKE_C_LINK_EXECUTABLE="g++ <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>" \
+    CFLAGS="-I/boringssl-${BORINGSSL_COMMIT}/build" \
     .. && \
-    make libcurl_static && make install
+    make libcurl_static curl && make install
 
 RUN mkdir dist && \
     cp /curl-${CURL_COMMIT}/build/installed/lib/libcurl.a /dist && \
@@ -198,9 +160,28 @@ RUN mkdir dist && \
     cp /boringssl-${BORINGSSL_COMMIT}/build/lib/libcrypto.a /dist && \
     cp /boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a /dist
 
+RUN g++ -o /usr/local/bin/test-fp /test-fp.c \
+    -I/curl-${CURL_COMMIT}/build/installed/include \
+    /curl-${CURL_COMMIT}/build/installed/lib/libcurl.a \
+    /zstd-${ZSTD_COMMIT}/build/installed/lib/libzstd.a \
+    /ngtcp2-${NGTCP2_COMMIT}/build/installed/lib/libngtcp2.a \
+    /ngtcp2-${NGTCP2_COMMIT}/build/installed/lib/libngtcp2_crypto_boringssl.a \
+    /nghttp3-${NGHTTP3_COMMIT}/build/installed/lib/libnghttp3.a \
+    /boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a \
+    /boringssl-${BORINGSSL_COMMIT}/build/lib/libcrypto.a \
+    /nghttp2-${NGHTTP2_COMMIT}/build/installed/lib/libnghttp2.a \
+    /brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlidec.a \
+    /brotli-${BROTLI_COMMIT}/build/installed/lib/libbrotlicommon.a \
+    /zlib-${ZLIB_COMMIT}/build/installed/lib/libz.a \
+    -lpthread -ldl
+
 
 FROM ubuntu:20.04 as stage2
 
+ARG CURL_COMMIT=d755a5f7c009dd63a61b2c745180d8ba937cbfeb
+
 COPY --from=stage1 /dist /curl-dist
+COPY --from=stage1 /curl-${CURL_COMMIT}/build/installed/bin/curl /usr/local/bin/curl
+COPY --from=stage1 /usr/local/bin/test-fp /usr/local/bin/test-fp
 
 CMD cp /curl-dist/* /output

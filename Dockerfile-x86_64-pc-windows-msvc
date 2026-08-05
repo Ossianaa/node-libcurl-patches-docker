@@ -1,8 +1,10 @@
 FROM ubuntu:20.04 as stage1
 
 ARG CURL_COMMIT=d755a5f7c009dd63a61b2c745180d8ba937cbfeb
-ARG BORINGSSL_COMMIT=1c8b5caaa97eaa7ebe745954496522cccca81a50
+ARG BORINGSSL_COMMIT=1c7d52ef3e3f373302cb957089fa783d1e5fd8cd
 ARG NGHTTP2_COMMIT=05b792901933664e7aeb7ebb8c87db81123d484a
+ARG NGTCP2_COMMIT=v1.0.1
+ARG NGHTTP3_COMMIT=v1.0.0
 ARG ZLIB_COMMIT=04f42ceca40f73e2978b50e93806c2a18c1281fc
 ARG ZSTD_COMMIT=a58b48ef0e543980888a4d9d16c9072ff22135ca
 ARG BROTLI_COMMIT=71fe6cac061ac62c0241f410fbd43a04a6b4f303
@@ -11,8 +13,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
 WORKDIR /src
-
-COPY quiche quiche
 
 RUN apt-get update && \
     apt-get install -y curl patch
@@ -29,13 +29,31 @@ RUN curl -L https://github.com/madler/zlib/archive/${ZLIB_COMMIT}.tar.gz -o zlib
 RUN curl -L https://github.com/nghttp2/nghttp2/archive/${NGHTTP2_COMMIT}.tar.gz -o nghttp2-${NGHTTP2_COMMIT}.tar.gz && \
     tar -xf nghttp2-${NGHTTP2_COMMIT}.tar.gz
 
+RUN curl -L https://github.com/ngtcp2/nghttp3/archive/refs/tags/${NGHTTP3_COMMIT}.tar.gz -o nghttp3-${NGHTTP3_COMMIT}.tar.gz && \
+    tar -xf nghttp3-${NGHTTP3_COMMIT}.tar.gz
+
+COPY nghttp3-fp.patch nghttp3-${NGHTTP3_COMMIT}/
+
+RUN cd nghttp3-${NGHTTP3_COMMIT} && \
+    patch -p1 < nghttp3-fp.patch
+
+RUN curl -L https://github.com/ngtcp2/ngtcp2/archive/refs/tags/${NGTCP2_COMMIT}.tar.gz -o ngtcp2-${NGTCP2_COMMIT}.tar.gz && \
+    tar -xf ngtcp2-${NGTCP2_COMMIT}.tar.gz
+
+COPY ngtcp2-fp.patch ngtcp2-${NGTCP2_COMMIT}/
+
+RUN cd ngtcp2-${NGTCP2_COMMIT} && \
+    patch -p1 < ngtcp2-fp.patch
+
 RUN curl -L https://github.com/google/boringssl/archive/${BORINGSSL_COMMIT}.tar.gz -o boringssl-${BORINGSSL_COMMIT}.tar.gz && \
     tar -xf boringssl-${BORINGSSL_COMMIT}.tar.gz
 
 COPY boringssl-${BORINGSSL_COMMIT}.patch boringssl-${BORINGSSL_COMMIT}/
+COPY boringssl-fp.patch boringssl-${BORINGSSL_COMMIT}/
 
 RUN cd boringssl-${BORINGSSL_COMMIT} && \
-    patch -p1 < boringssl-${BORINGSSL_COMMIT}.patch
+    patch -p1 < boringssl-${BORINGSSL_COMMIT}.patch && \
+    patch -p1 < boringssl-fp.patch
 
 RUN curl -L https://github.com/curl/curl/archive/${CURL_COMMIT}.tar.gz -o curl-${CURL_COMMIT}.tar.gz && \
     tar -xf curl-${CURL_COMMIT}.tar.gz
@@ -46,12 +64,16 @@ RUN cd curl-${CURL_COMMIT} && \
     patch -p1 < curl-${CURL_COMMIT}.patch
 
 COPY curl-socks5-udp.patch curl-${CURL_COMMIT}/
+COPY curl-h3fp.patch curl-${CURL_COMMIT}/
 
 RUN cd curl-${CURL_COMMIT} && \
-    patch -p1 < curl-socks5-udp.patch
+    patch -p1 < curl-socks5-udp.patch && \
+    patch -p1 < curl-h3fp.patch
 
 RUN mv boringssl-${BORINGSSL_COMMIT} boringssl && \
     mv nghttp2-${NGHTTP2_COMMIT} nghttp2 && \
+    mv ngtcp2-${NGTCP2_COMMIT} ngtcp2 && \
+    mv nghttp3-${NGHTTP3_COMMIT} nghttp3 && \
     mv brotli-${BROTLI_COMMIT} brotli && \
     mv zlib-${ZLIB_COMMIT} zlib && \
     mv zstd-${ZSTD_COMMIT} zstd && \
@@ -98,6 +120,16 @@ RUN echo "cd C:/brotli && del build && \
     xcopy ./crypto ./lib /E /I /Y && \
     xcopy ../include ./include /E /I /Y &&\
     \
+    cd C:/nghttp3 && del build && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 .. && \
+    cmake --build . --config Release --target install &&\
+    \
+    cd C:/ngtcp2 && del build && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_BORINGSSL=1 -DBORINGSSL_INCLUDE_DIR=C:/boringssl/build/include -DBORINGSSL_LIBRARIES=C:/boringssl/build/lib/ssl/ssl.lib;C:/boringssl/build/lib/crypto/crypto.lib;ws2_32;bcrypt .. && \
+    cmake --build . --config Release --target install &&\
+    \
     cd C:/curl && del build && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=./installed \
@@ -110,9 +142,12 @@ RUN echo "cd C:/brotli && del build && \
       -DUSE_NGHTTP2=1 \
       -DNGHTTP2_INCLUDE_DIR=C:/nghttp2/build/installed/include \
       -DNGHTTP2_LIBRARY=C:/nghttp2/build/installed/lib/nghttp2.lib \
-      -DUSE_QUICHE=1 \
-      -DQUICHE_INCLUDE_DIR=/quiche \
-      -DQUICHE_LIBRARY=/quiche/quiche.lib \
+      -DUSE_NGTCP2=1 \
+      -DNGTCP2_INCLUDE_DIR=C:/ngtcp2/build/installed/include \
+      -DNGTCP2_LIBRARY=C:/ngtcp2/build/installed/lib/ngtcp2.lib \
+      -Dngtcp2_crypto_boringssl_LIBRARY=C:/ngtcp2/build/installed/lib/ngtcp2_crypto_boringssl.lib \
+      -DNGHTTP3_INCLUDE_DIR=C:/nghttp3/build/installed/include \
+      -DNGHTTP3_LIBRARY=C:/nghttp3/build/installed/lib/nghttp3.lib \
       -DCURL_ZSTD=1 \
       -DZstd_INCLUDE_DIR=C:/zstd/build/installed/include \
       -DZstd_LIBRARY=C:/zstd/build/installed/lib/zstd_static.lib \
@@ -123,7 +158,7 @@ RUN echo "cd C:/brotli && del build && \
       -DENABLE_WEBSOCKETS=1 \
       -DBUILD_CURL_EXE=0 \
       -DCMAKE_POSITION_INDEPENDENT_CODE=1 \
-      -DCMAKE_C_FLAGS="-DNGHTTP2_STATICLIB=1" \
+      -DCMAKE_C_FLAGS="-DNGHTTP2_STATICLIB=1 -DNGTCP2_STATICLIB=1 -DNGHTTP3_STATICLIB=1" \
       .. && \
     ninja libcurl_shared && \
     \
