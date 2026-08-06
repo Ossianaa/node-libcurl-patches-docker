@@ -1833,10 +1833,10 @@ index 494b660a98..c9e1f65c90 100644
 -  if(httpwant >= CURL_HTTP_VERSION_2)
 -    return &ALPN_SPEC_H2_H11;
 -#endif
-+  return &ALPN_SPEC_H2_H11;
-+#else
-   return &ALPN_SPEC_H11;
++  if(httpwant >= CURL_HTTP_VERSION_2)
++    return &ALPN_SPEC_H2_H11;
 +#endif
+   return &ALPN_SPEC_H11;
  }
  #endif /* USE_SSL */
  
