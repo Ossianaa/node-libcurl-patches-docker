@@ -1,10 +1,15 @@
 diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/include/openssl/ssl.h boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/include/openssl/ssl.h
 --- pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/include/openssl/ssl.h	2026-08-05 10:01:44.184976100 +0800
-+++ boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/include/openssl/ssl.h	2026-08-05 09:46:13.829364400 +0800
-@@ -6265,7 +6265,28 @@
++++ boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/include/openssl/ssl.h	2026-08-06 22:12:20.951813800 +0800
+@@ -6265,7 +6265,33 @@
  
  OPENSSL_EXPORT int SSL_CTX_set_ciphersuites(SSL_CTX* ctx, char* str);
  
++// SSL_CTX_set_ciphersuites_quic is like SSL_CTX_set_ciphersuites but applies
++// only to QUIC (HTTP/3) connections. The TLS 1.3 cipher suite order used for
++// QUIC is kept independent from the one used for HTTP/1.1 and HTTP/2.
++OPENSSL_EXPORT int SSL_CTX_set_ciphersuites_quic(SSL_CTX* ctx, char* str);
++
 +// SSL_CTX_set_extension_permutation sets the order of ClientHello extensions
 +// and restricts the set of extensions sent. |str| is a comma-separated list
 +// of 0-based indices into the internal extension table (see
@@ -30,12 +35,35 @@ diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783
  // TLSEXT_nid_unknown is a constant used in OpenSSL for
  // `SSL_get_negotiated_group` to return an unrecognized group. BoringSSL never
  // returns this value, but we define this constant for compatibility.
+diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/handshake_client.cc boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/handshake_client.cc
+--- pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/handshake_client.cc	2026-08-05 10:01:44.189975900 +0800
++++ boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/handshake_client.cc	2026-08-06 22:12:40.776440100 +0800
+@@ -111,8 +111,13 @@
+   // Add TLS 1.3 ciphers. Order ChaCha20-Poly1305 relative to AES-GCM based on
+   // hardware support.
+   if (hs->max_version >= TLS1_3_VERSION) {
+-    if (!ssl->ctx->cipher13_flag_list.empty()) {
+-        for (uint8_t flag : ssl->ctx->cipher13_flag_list) {
++    // QUIC (HTTP/3) connections use their own cipher suite configuration,
++    // independent from HTTP/1.1 and HTTP/2 connections.
++    const bssl::Array<uint8_t> &cipher13_flag_list =
++        ssl->quic_method != nullptr ? ssl->ctx->cipher13_flag_list_quic
++                                    : ssl->ctx->cipher13_flag_list;
++    if (!cipher13_flag_list.empty()) {
++        for (uint8_t flag : cipher13_flag_list) {
+             int id = 0;
+             switch (flag) {
+             case 1:
 diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/internal.h boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/internal.h
 --- pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/internal.h	2026-08-05 10:01:44.191976200 +0800
-+++ boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/internal.h	2026-08-05 09:46:29.770253700 +0800
-@@ -4201,6 +4201,16 @@
++++ boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/internal.h	2026-08-06 22:12:26.244100000 +0800
+@@ -4200,7 +4200,20 @@
+   bool resumption_across_names_enabled : 1;
  
    bssl::Array<uint8_t> cipher13_flag_list;
++  // TLS 1.3 cipher suite flag list for QUIC (HTTP/3) connections only.
++  // Kept independent from |cipher13_flag_list| (HTTP/1.1 and HTTP/2).
++  bssl::Array<uint8_t> cipher13_flag_list_quic;
    bssl::Array<uint8_t> extension_permutation;
 +
 +  // Fingerprint profile configuration (BoringSSL fork). These override the
@@ -52,7 +80,7 @@ diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783
    ~SSLContext();
 diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/ssl_lib.cc boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/ssl_lib.cc
 --- pristine/boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/ssl_lib.cc	2026-08-05 10:01:44.194975900 +0800
-+++ boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/ssl_lib.cc	2026-08-05 10:27:35.262900600 +0800
++++ boringssl-1c7d52ef3e3f373302cb957089fa783d1e5fd8cd/ssl/ssl_lib.cc	2026-08-06 22:12:35.571639200 +0800
 @@ -398,7 +398,8 @@
        enable_early_data(false),
        aes_hw_override(false),
@@ -91,7 +119,23 @@ diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783
    SSL_enable_signed_cert_timestamps(ssl.get());
    SSL_set_enable_ech_grease(ssl.get(), 1);
    SSL_set1_requested_trust_anchors(ssl.get(), nullptr, 0);
-@@ -3680,7 +3694,12 @@
+@@ -3671,36 +3685,108 @@
+   }
+ }
+ 
+-int SSL_CTX_set_ciphersuites(SSL_CTX *ctx, char *str) {
+-  if (!str) {
+-    return 0;
++static bool ssl_ctx_parse_cipher13_flags(char *str,
++                                        bssl::Array<uint8_t> *out) {
++  if (!str || !*str) {
++    return false;
+   }
+   bssl::Array<uint8_t> arr;
+-  if (!arr.Init(strlen(str))) return 0;
++  if (!arr.Init(strlen(str))) {
++    return false;
++  }
    int i = 0;
    const char *l = str;
    do {
@@ -99,13 +143,29 @@ diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783
 +    // '1' = TLS_AES_128_GCM_SHA256, '2' = TLS_AES_256_GCM_SHA384,
 +    // '3' = TLS_CHACHA20_POLY1305_SHA256
 +    if (*l < '1' || *l > '3') {
-+      return 0;
++      return false;
 +    }
 +    arr[i++] = (uint8_t)(*l - '0');
    } while (*++l != '\0');
++  *out = std::move(arr);
++  return true;
++}
++
++int SSL_CTX_set_ciphersuites(SSL_CTX *ctx, char *str) {
++  auto ctx_ = static_cast<SSLContext*>(ctx);
++  return ssl_ctx_parse_cipher13_flags(str, &ctx_->cipher13_flag_list) ? 1 : 0;
++}
++
++// SSL_CTX_set_ciphersuites_quic configures the TLS 1.3 cipher suite order for
++// QUIC (HTTP/3) connections only, independent from SSL_CTX_set_ciphersuites
++// which applies to HTTP/1.1 and HTTP/2 connections.
++int SSL_CTX_set_ciphersuites_quic(SSL_CTX *ctx, char *str) {
    auto ctx_ = static_cast<SSLContext*>(ctx);
-   ctx_->cipher13_flag_list = std::move(arr);
-@@ -3688,19 +3707,69 @@
+-  ctx_->cipher13_flag_list = std::move(arr);
+-  return ctx_->cipher13_flag_list.empty() ? 0 : 1;
++  return ssl_ctx_parse_cipher13_flags(str, &ctx_->cipher13_flag_list_quic)
++             ? 1
++             : 0;
  }
  
  int SSL_CTX_set_extension_permutation(SSL_CTX *ctx, char *str) {
@@ -155,16 +215,16 @@ diff -ruN '--exclude=*.patch' pristine/boringssl-1c7d52ef3e3f373302cb957089fa783
 +}
 +
 +int SSL_CTX_set_fp_grease(SSL_CTX *ctx, int enable) {
-   auto ctx_ = static_cast<SSLContext*>(ctx);
--  ctx_->extension_permutation = std::move(arr);
--  return ctx_->extension_permutation.empty() ? 0 : 1;
++  auto ctx_ = static_cast<SSLContext*>(ctx);
 +  ctx_->fp_grease = enable ? 1 : 0;
 +  return 1;
 +}
 +
 +int SSL_CTX_set_fp_alps(SSL_CTX *ctx, const uint8_t *proto, size_t proto_len,
 +                        const uint8_t *settings, size_t settings_len) {
-+  auto ctx_ = static_cast<SSLContext*>(ctx);
+   auto ctx_ = static_cast<SSLContext*>(ctx);
+-  ctx_->extension_permutation = std::move(arr);
+-  return ctx_->extension_permutation.empty() ? 0 : 1;
 +  bssl::Array<uint8_t> proto_copy, settings_copy;
 +  if (proto_len) {
 +    if (!proto_copy.Init(proto_len)) {

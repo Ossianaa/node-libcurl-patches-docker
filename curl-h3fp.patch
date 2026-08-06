@@ -765,7 +765,7 @@ index eace639..e827601 100644
 +              buf[o++] = q[8 + i];
 +          }
 +          buf[o] = '\0';
-+          if(!SSL_CTX_set_ciphersuites(ssl_ctx, buf)) {
++          if(!SSL_CTX_set_ciphersuites_quic(ssl_ctx, buf)) {
 +            failf(data, "failed setting QUIC TLS 1.3 ciphers: %s", buf);
 +            result = CURLE_SSL_CIPHER;
 +            goto out;
