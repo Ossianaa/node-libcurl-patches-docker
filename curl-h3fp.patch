@@ -1,8 +1,8 @@
 diff --git a/include/curl/curl.h b/include/curl/curl.h
-index 794b3b7dad..73cc55694a 100644
+index 794b3b7..0e04bc5 100644
 --- a/include/curl/curl.h
 +++ b/include/curl/curl.h
-@@ -2219,6 +2219,25 @@ typedef enum {
+@@ -2219,6 +2219,32 @@ typedef enum {
    /* Specify preferred signature algorithms for certificate verification
       (BoringSSL-only). Comma-separated list as a single string. */
    CURLOPT(CURLOPT_TLS_VERIFY_SIGALGS, CURLOPTTYPE_STRINGPOINT, 330),
@@ -25,14 +25,21 @@ index 794b3b7dad..73cc55694a 100644
 +     2=AES256-GCM, 3=CHACHA20); alps sets the ALPS protocol; grease=off
 +     disables TLS-level GREASE. */
 +  CURLOPT(CURLOPT_HTTP3_FP_TLS, CURLOPTTYPE_STRINGPOINT, 334),
++  /* HTTP/3-specific TLS extension permutation. Chrome uses a different
++     ClientHello extension order for HTTP/3 than for HTTP/2, so this
++     overrides CURLOPT_TLS_EXTENSION_PERMUTATION on QUIC connections. */
++  CURLOPT(CURLOPT_TLS_EXTENSION_PERMUTATION_HTTP3, CURLOPTTYPE_STRINGPOINT, 335),
++  /* HTTP/3-specific signature algorithms (see CURLOPT_TLS_VERIFY_SIGALGS).
++     Overrides it on QUIC connections. */
++  CURLOPT(CURLOPT_TLS_VERIFY_SIGALGS_HTTP3, CURLOPTTYPE_STRINGPOINT, 336),
    CURLOPT_LASTENTRY /* the last unused */
  } CURLoption;
  
 diff --git a/lib/setopt.c b/lib/setopt.c
-index 8e02e1d696..dc77158ccc 100644
+index 8e02e1d..64f7bf1 100644
 --- a/lib/setopt.c
 +++ b/lib/setopt.c
-@@ -3180,6 +3180,22 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
+@@ -3180,6 +3180,30 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
      result = Curl_setstropt(&data->set.str[STRING_SSL_VERIFY_SIGALGS],
                              va_arg(param, char *));
      break;
@@ -52,14 +59,22 @@ index 8e02e1d696..dc77158ccc 100644
 +    result = Curl_setstropt(&data->set.str[STRING_HTTP3_FP_TLS],
 +                            va_arg(param, char *));
 +    break;
++  case CURLOPT_TLS_EXTENSION_PERMUTATION_HTTP3:
++    result = Curl_setstropt(&data->set.str[STRING_TLS_EXTENSION_PERMUTATION_HTTP3],
++                            va_arg(param, char *));
++    break;
++  case CURLOPT_TLS_VERIFY_SIGALGS_HTTP3:
++    result = Curl_setstropt(&data->set.str[STRING_SSL_VERIFY_SIGALGS_HTTP3],
++                            va_arg(param, char *));
++    break;
  #ifdef USE_HTTP2
    case CURLOPT_HTTP2_PSEUDO_HEADERS_ORDER:
      result = Curl_setstropt(&data->set.str[STRING_HTTP2_PSEUDO_HEADERS_ORDER],
 diff --git a/lib/urldata.h b/lib/urldata.h
-index 50db016a0b..f2c0856195 100644
+index 50db016..7992c7c 100644
 --- a/lib/urldata.h
 +++ b/lib/urldata.h
-@@ -1610,6 +1610,12 @@ enum dupstring {
+@@ -1610,6 +1610,14 @@ enum dupstring {
       Comma-separated list as used by CURLOPT_TLS_VERIFY_SIGALGS. */
    STRING_SSL_VERIFY_SIGALGS,
  
@@ -68,15 +83,25 @@ index 50db016a0b..f2c0856195 100644
 +  STRING_HTTP3_FP_SETTINGS,
 +  STRING_HTTP3_FP_TRANSPORT_PARAMS,
 +  STRING_HTTP3_FP_TLS,
++  STRING_TLS_EXTENSION_PERMUTATION_HTTP3, /* HTTP/3-only extension order */
++  STRING_SSL_VERIFY_SIGALGS_HTTP3, /* HTTP/3-only sigalgs */
 +
    STRING_LASTZEROTERMINATED,
  
    /* -- below this are pointers to binary data that cannot be strdup'ed. --- */
 diff --git a/lib/vquic/curl_ngtcp2.c b/lib/vquic/curl_ngtcp2.c
-index eace63985b..43a66f64e7 100644
+index eace639..e827601 100644
 --- a/lib/vquic/curl_ngtcp2.c
 +++ b/lib/vquic/curl_ngtcp2.c
-@@ -83,6 +83,10 @@
+@@ -75,7 +75,6 @@
+ #include "memdebug.h"
+ 
+ 
+-#define H3_ALPN_H3_29 "\x5h3-29"
+ #define H3_ALPN_H3 "\x2h3"
+ 
+ #define QUIC_MAX_STREAMS (256*1024)
+@@ -83,6 +82,10 @@
  #define QUIC_IDLE_TIMEOUT (60*NGTCP2_SECONDS)
  #define QUIC_HANDSHAKE_TIMEOUT (10*NGTCP2_SECONDS)
  
@@ -87,7 +112,7 @@ index eace63985b..43a66f64e7 100644
  /* A stream window is the maximum amount we need to buffer for
   * each active transfer. We use HTTP/3 flow control and only ACK
   * when we take things out of the buffer.
-@@ -173,6 +177,16 @@ struct cf_ngtcp2_ctx {
+@@ -173,6 +176,16 @@ struct cf_ngtcp2_ctx {
    unsigned short socks5_relay_port;
    curl_socket_t socks5_control_fd;   /* TCP control connection to proxy */
    BIT(socks5_udp_relay);             /* TRUE if using SOCKS5 UDP relay */
@@ -104,7 +129,7 @@ index eace63985b..43a66f64e7 100644
  };
  
  /* How to access `call_data` from a cf_ngtcp2 filter */
-@@ -334,9 +348,449 @@ static void qlog_callback(void *user_data, uint32_t flags,
+@@ -334,9 +347,449 @@ static void qlog_callback(void *user_data, uint32_t flags,
  
  }
  
@@ -557,7 +582,7 @@ index eace63985b..43a66f64e7 100644
  {
    ngtcp2_settings *s = &ctx->settings;
    ngtcp2_transport_params *t = &ctx->transport_params;
-@@ -349,7 +803,6 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+@@ -349,7 +802,6 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
    s->log_printf = NULL;
  #endif
  
@@ -565,7 +590,7 @@ index eace63985b..43a66f64e7 100644
    s->initial_ts = pktx->ts;
    s->handshake_timeout = QUIC_HANDSHAKE_TIMEOUT;
    s->max_window = 100 * ctx->max_stream_window;
-@@ -365,6 +818,9 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+@@ -365,6 +817,9 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
    if(ctx->qlogfd != -1) {
      s->qlog_write = qlog_callback;
    }
@@ -575,7 +600,7 @@ index eace63985b..43a66f64e7 100644
  }
  
  #ifdef USE_OPENSSL
-@@ -455,6 +911,20 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -455,6 +910,20 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
      SSL_CTX_set_keylog_callback(ssl_ctx, keylog_callback);
    }
  
@@ -596,7 +621,7 @@ index eace63985b..43a66f64e7 100644
    /* OpenSSL always tries to verify the peer, this only says whether it should
     * fail to connect if the verification fails, or if it should continue
     * anyway. In the latter case the result of the verification is checked with
-@@ -462,6 +932,190 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -462,6 +931,196 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
    SSL_CTX_set_verify(ssl_ctx, conn->ssl_config.verifypeer ?
                       SSL_VERIFY_PEER : SSL_VERIFY_NONE, NULL);
  
@@ -622,12 +647,16 @@ index eace63985b..43a66f64e7 100644
 +      }
 +    }
 +
-+    if(conn->ssl_config.extension_permutation || ctx->fp_rand) {
++    if(data->set.str[STRING_TLS_EXTENSION_PERMUTATION_HTTP3] ||
++       conn->ssl_config.extension_permutation || ctx->fp_rand) {
 +      /* Chrome randomizes the ClientHello extension order per
-+         connection: shuffle the configured (or default) list */
++         connection: shuffle the configured (or default) list. The
++         HTTP/3-specific option overrides the shared one. */
 +      size_t idx[NGTCP2_FP_MAX_TP];
 +      size_t n = 0;
-+      const char *perm = conn->ssl_config.extension_permutation;
++      const char *perm = data->set.str[STRING_TLS_EXTENSION_PERMUTATION_HTTP3] ?
++                        data->set.str[STRING_TLS_EXTENSION_PERMUTATION_HTTP3] :
++                        conn->ssl_config.extension_permutation;
 +      const char *q = perm;
 +      char permbuf[256];
 +      size_t o = 0;
@@ -675,7 +704,9 @@ index eace63985b..43a66f64e7 100644
 +      }
 +    }
 +    {
-+      const char *sigalgs = data->set.str[STRING_SSL_VERIFY_SIGALGS];
++      const char *sigalgs = data->set.str[STRING_SSL_VERIFY_SIGALGS_HTTP3] ?
++                        data->set.str[STRING_SSL_VERIFY_SIGALGS_HTTP3] :
++                        data->set.str[STRING_SSL_VERIFY_SIGALGS];
 +      if(sigalgs && *sigalgs) {
 +        char *tmp = NULL;
 +        char *tok;
@@ -787,7 +818,46 @@ index eace63985b..43a66f64e7 100644
    /* give application a chance to interfere with SSL set up. */
    if(data->set.ssl.fsslctx) {
      /* When a user callback is installed to modify the SSL_CTX,
-@@ -1390,6 +2044,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
+@@ -530,8 +1189,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+   SSL_set_connect_state(ctx->ssl);
+   SSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
+ 
+-  alpn = (const uint8_t *)H3_ALPN_H3_29 H3_ALPN_H3;
+-  alpnlen = sizeof(H3_ALPN_H3_29) - 1 + sizeof(H3_ALPN_H3) - 1;
++  alpn = (const uint8_t *)H3_ALPN_H3;
++  alpnlen = sizeof(H3_ALPN_H3) - 1;
+   if(alpn)
+     SSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
+ 
+@@ -595,13 +1254,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+   }
+ 
+   /* strip the first byte (the length) from NGHTTP3_ALPN_H3 */
+-  alpn[0].data = (unsigned char *)H3_ALPN_H3_29 + 1;
+-  alpn[0].size = sizeof(H3_ALPN_H3_29) - 2;
+-  alpn[1].data = (unsigned char *)H3_ALPN_H3 + 1;
+-  alpn[1].size = sizeof(H3_ALPN_H3) - 2;
++  alpn[0].data = (unsigned char *)H3_ALPN_H3 + 1;
++  alpn[0].size = sizeof(H3_ALPN_H3) - 2;
+ 
+   gnutls_alpn_set_protocols(ctx->gtls->session,
+-                            alpn, 2, GNUTLS_ALPN_MANDATORY);
++                            alpn, 1, GNUTLS_ALPN_MANDATORY);
+   return CURLE_OK;
+ }
+ #elif defined(USE_WOLFSSL)
+@@ -725,8 +1382,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+   wolfSSL_set_connect_state(ctx->ssl);
+   wolfSSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
+ 
+-  alpn = (const uint8_t *)H3_ALPN_H3_29 H3_ALPN_H3;
+-  alpnlen = sizeof(H3_ALPN_H3_29) - 1 + sizeof(H3_ALPN_H3) - 1;
++  alpn = (const uint8_t *)H3_ALPN_H3;
++  alpnlen = sizeof(H3_ALPN_H3) - 1;
+   if(alpn)
+     wolfSSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
+ 
+@@ -1390,6 +2047,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
    }
  
    nghttp3_settings_default(&ctx->h3settings);
@@ -822,7 +892,7 @@ index eace63985b..43a66f64e7 100644
  
    rc = nghttp3_conn_client_new(&ctx->h3conn,
                                 &ngh3_callbacks,
-@@ -2450,19 +3132,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2450,19 +3135,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(result)
      return result;
  
@@ -860,7 +930,7 @@ index eace63985b..43a66f64e7 100644
  
    result = vquic_ctx_init(&ctx->q);
    if(result)
-@@ -2492,6 +3188,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2492,6 +3191,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(rc)
      return CURLE_QUIC_CONNECT_ERROR;
  
