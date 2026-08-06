@@ -1,9 +1,9 @@
-diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/nghttp3-1.0.0/lib/includes/nghttp3/nghttp3.h nghttp3-1.0.0/lib/includes/nghttp3/nghttp3.h
---- pristine/nghttp3-1.0.0/lib/includes/nghttp3/nghttp3.h	2023-10-15 20:21:34.000000000 +0800
-+++ nghttp3-1.0.0/lib/includes/nghttp3/nghttp3.h	2026-08-05 09:48:01.650402100 +0800
-@@ -1607,6 +1607,11 @@
- #define NGHTTP3_SETTINGS_V1 1
- #define NGHTTP3_SETTINGS_VERSION NGHTTP3_SETTINGS_V1
+diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/nghttp3-1.18.0/lib/includes/nghttp3/nghttp3.h nghttp3-1.18.0/lib/includes/nghttp3/nghttp3.h
+--- pristine/nghttp3-1.18.0/lib/includes/nghttp3/nghttp3.h	2026-07-26 15:22:42.000000000 +0800
++++ nghttp3-1.18.0/lib/includes/nghttp3/nghttp3.h	2026-08-06 06:42:04.180274200 +0800
+@@ -1614,6 +1614,11 @@
+   nghttp3_qpack_nv *nv, uint8_t *pflags, const uint8_t *src, size_t srclen,
+   int fin);
  
 +typedef struct nghttp3_settings_entry {
 +  uint64_t id;
@@ -11,12 +11,12 @@ diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--
 +} nghttp3_settings_entry;
 +
  /**
-  * @struct
+  * @function
   *
-@@ -1652,6 +1657,15 @@
-    * Datagrams (see :rfc:`9297`).
+@@ -1899,6 +1904,15 @@
+    * .. version-added:: 1.13.0
     */
-   uint8_t h3_datagram;
+   nghttp3_qpack_indexing_strat qpack_indexing_strat;
 +  /**
 +   * :member:`fp_iv` is the optional fingerprint SETTINGS list.  If
 +   * :member:`fp_ivlen` is nonzero, the SETTINGS frame is built
@@ -28,13 +28,13 @@ diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--
 +  size_t fp_ivlen;
  } nghttp3_settings;
  
- /**
-diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/nghttp3-1.0.0/lib/nghttp3_conn.c nghttp3-1.0.0/lib/nghttp3_conn.c
---- pristine/nghttp3-1.0.0/lib/nghttp3_conn.c	2023-10-15 20:21:34.000000000 +0800
-+++ nghttp3-1.0.0/lib/nghttp3_conn.c	2026-08-05 11:14:58.116353700 +0800
-@@ -267,6 +267,20 @@
-     goto qenc_init_fail;
-   }
+ #define NGHTTP3_PROTO_SETTINGS_V1 1
+diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/nghttp3-1.18.0/lib/nghttp3_conn.c nghttp3-1.18.0/lib/nghttp3_conn.c
+--- pristine/nghttp3-1.18.0/lib/nghttp3_conn.c	2026-07-26 15:22:42.000000000 +0800
++++ nghttp3-1.18.0/lib/nghttp3_conn.c	2026-08-06 06:40:45.500729400 +0800
+@@ -332,6 +332,20 @@
+   nghttp3_qpack_encoder_set_indexing_strat(&conn->qenc,
+                                            settings->qpack_indexing_strat);
  
 +  /* Fingerprint profile: if the local settings advertise a QPACK
 +     dynamic table capacity, size the encoder accordingly (as Chrome
@@ -53,12 +53,12 @@ diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--
    nghttp3_pq_init(&conn->qpack_blocked_streams, ricnt_less, mem);
  
    for (i = 0; i < NGHTTP3_URGENCY_LEVELS; ++i) {
-diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/nghttp3-1.0.0/lib/nghttp3_frame.h nghttp3-1.0.0/lib/nghttp3_frame.h
---- pristine/nghttp3-1.0.0/lib/nghttp3_frame.h	2023-10-15 20:21:34.000000000 +0800
-+++ nghttp3-1.0.0/lib/nghttp3_frame.h	2026-08-05 09:51:34.632255900 +0800
-@@ -80,11 +80,6 @@
- #define NGHTTP3_H2_SETTINGS_ID_INITIAL_WINDOW_SIZE 0x4
- #define NGHTTP3_H2_SETTINGS_ID_MAX_FRAME_SIZE 0x5
+diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/nghttp3-1.18.0/lib/nghttp3_frame.h nghttp3-1.18.0/lib/nghttp3_frame.h
+--- pristine/nghttp3-1.18.0/lib/nghttp3_frame.h	2026-07-26 15:22:42.000000000 +0800
++++ nghttp3-1.18.0/lib/nghttp3_frame.h	2026-08-06 06:40:45.516733500 +0800
+@@ -82,11 +82,6 @@
+ #define NGHTTP3_H2_SETTINGS_ID_INITIAL_WINDOW_SIZE 0x4U
+ #define NGHTTP3_H2_SETTINGS_ID_MAX_FRAME_SIZE 0x5U
  
 -typedef struct nghttp3_settings_entry {
 -  uint64_t id;
@@ -66,36 +66,33 @@ diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--
 -} nghttp3_settings_entry;
 -
  typedef struct nghttp3_frame_settings {
-   nghttp3_frame_hd hd;
+   uint64_t type;
    size_t niv;
-diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/nghttp3-1.0.0/lib/nghttp3_stream.c nghttp3-1.0.0/lib/nghttp3_stream.c
---- pristine/nghttp3-1.0.0/lib/nghttp3_stream.c	2023-10-15 20:21:34.000000000 +0800
-+++ nghttp3-1.0.0/lib/nghttp3_stream.c	2026-08-05 12:02:19.615379900 +0800
-@@ -345,6 +345,43 @@
-   nghttp3_settings *local_settings = frent->aux.settings.local_settings;
+diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/nghttp3-1.18.0/lib/nghttp3_stream.c nghttp3-1.18.0/lib/nghttp3_stream.c
+--- pristine/nghttp3-1.18.0/lib/nghttp3_stream.c	2026-07-26 15:22:42.000000000 +0800
++++ nghttp3-1.18.0/lib/nghttp3_stream.c	2026-08-06 06:42:19.674431300 +0800
+@@ -341,6 +341,40 @@
+   const nghttp3_settings *local_settings = infr->local_settings;
+   uint64_t payloadlen;
  
-   fr.settings.hd.type = NGHTTP3_FRAME_SETTINGS;
-+
 +  if (local_settings->fp_ivlen) {
-+    /* Fingerprint profile: send exactly the configured SETTINGS, in order.
-+       Note: use a pointer into the iv array (as the default path does);
-+       direct `settings.iv[i]` member access beyond the declared iv[1] is
-+       undefined behaviour that -O2 optimizers may miscompile. */
++    /* Fingerprint profile: send exactly the configured SETTINGS, in
++       wire order, instead of the defaults. */
 +    size_t i;
-+    nghttp3_settings_entry *iv = &fr.settings.iv[0];
 +
 +    if (local_settings->fp_ivlen > 15) {
 +      return NGHTTP3_ERR_INVALID_ARGUMENT;
 +    }
 +
-+    fr.settings.niv = local_settings->fp_ivlen;
++    fr.niv = local_settings->fp_ivlen;
 +    for (i = 0; i < local_settings->fp_ivlen; ++i) {
-+      iv[i].id = local_settings->fp_iv[i].id;
-+      iv[i].value = local_settings->fp_iv[i].value;
++      ents[i] = (nghttp3_settings_entry){
++        .id = local_settings->fp_iv[i].id,
++        .value = local_settings->fp_iv[i].value,
++      };
 +    }
 +
-+    len = nghttp3_frame_write_settings_len(&fr.settings.hd.length,
-+                                           &fr.settings);
++    len = nghttp3_frame_write_settings_len(&payloadlen, &fr);
 +
 +    rv = nghttp3_stream_ensure_chunk(stream, len);
 +    if (rv != 0) {
@@ -103,15 +100,15 @@ diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--
 +    }
 +
 +    chunk = nghttp3_stream_get_chunk(stream);
-+    typed_buf_shared_init(&tbuf, chunk);
++    nghttp3_typed_buf_shared_init(&tbuf, chunk);
 +
-+    chunk->last = nghttp3_frame_write_settings(chunk->last, &fr.settings);
++    chunk->last = nghttp3_frame_write_settings(chunk->last, &fr, payloadlen);
 +
 +    tbuf.buf.last = chunk->last;
 +
 +    return nghttp3_stream_outq_add(stream, &tbuf);
 +  }
 +
-   fr.settings.niv = 3;
-   iv = &fr.settings.iv[0];
- 
+   ents[0] = (nghttp3_settings_entry){
+     .id = NGHTTP3_SETTINGS_ID_MAX_FIELD_SECTION_SIZE,
+     .value = local_settings->max_field_section_size,

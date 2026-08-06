@@ -1,0 +1,35 @@
+diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/nghttp3-1.18.0/lib/nghttp3_macro.h nghttp3-1.18.0/lib/nghttp3_macro.h
+--- pristine/nghttp3-1.18.0/lib/nghttp3_macro.h	2026-08-06 08:36:10.786748000 +0800
++++ nghttp3-1.18.0/lib/nghttp3_macro.h	2026-08-06 08:36:11.010646300 +0800
+@@ -78,7 +78,6 @@
+       int: nghttp3_max_int,                                                    \
+       short int: nghttp3_max_short_int,                                        \
+       signed char: nghttp3_max_signed_char,                                    \
+-      char: nghttp3_max_char,                                                  \
+       unsigned long long int: nghttp3_max_unsigned_long_long_int,              \
+       unsigned long int: nghttp3_max_unsigned_long_int,                        \
+       unsigned int: nghttp3_max_unsigned_int,                                  \
+@@ -86,7 +85,6 @@
+       unsigned char: nghttp3_max_unsigned_char),                               \
+     short int: nghttp3_max_short_int,                                          \
+     signed char: nghttp3_max_signed_char,                                      \
+-    char: nghttp3_max_char,                                                    \
+     unsigned long long int: nghttp3_max_unsigned_long_long_int,                \
+     unsigned long int: nghttp3_max_unsigned_long_int,                          \
+     unsigned int: nghttp3_max_unsigned_int,                                    \
+@@ -118,7 +116,6 @@
+       int: nghttp3_min_int,                                                    \
+       short int: nghttp3_min_short_int,                                        \
+       signed char: nghttp3_min_signed_char,                                    \
+-      char: nghttp3_min_char,                                                  \
+       unsigned long long int: nghttp3_min_unsigned_long_long_int,              \
+       unsigned long int: nghttp3_min_unsigned_long_int,                        \
+       unsigned int: nghttp3_min_unsigned_int,                                  \
+@@ -126,7 +123,6 @@
+       unsigned char: nghttp3_min_unsigned_char),                               \
+     short int: nghttp3_min_short_int,                                          \
+     signed char: nghttp3_min_signed_char,                                      \
+-    char: nghttp3_min_char,                                                    \
+     unsigned long long int: nghttp3_min_unsigned_long_long_int,                \
+     unsigned long int: nghttp3_min_unsigned_long_int,                          \
+     unsigned int: nghttp3_min_unsigned_int,                                    \

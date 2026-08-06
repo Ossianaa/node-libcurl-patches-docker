@@ -1,8 +1,8 @@
-diff -ruN '--exclude=version.h' pristine/ngtcp2-1.0.1/lib/includes/ngtcp2/ngtcp2.h ngtcp2-1.0.1/lib/includes/ngtcp2/ngtcp2.h
---- pristine/ngtcp2-1.0.1/lib/includes/ngtcp2/ngtcp2.h	2023-10-23 19:41:18.000000000 +0800
-+++ ngtcp2-1.0.1/lib/includes/ngtcp2/ngtcp2.h	2026-08-05 11:18:15.297741000 +0800
-@@ -4196,6 +4196,111 @@
-     ngtcp2_conn *conn, uint8_t *dest, size_t destlen);
+diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/ngtcp2-1.25.0/lib/includes/ngtcp2/ngtcp2.h ngtcp2-1.25.0/lib/includes/ngtcp2/ngtcp2.h
+--- pristine/ngtcp2-1.25.0/lib/includes/ngtcp2/ngtcp2.h	2026-07-26 15:55:55.000000000 +0800
++++ ngtcp2-1.25.0/lib/includes/ngtcp2/ngtcp2.h	2026-08-06 06:42:32.924789300 +0800
+@@ -4202,6 +4202,111 @@
+   const ngtcp2_mem *mem, void *user_data);
  
  /**
 + * @enum
@@ -112,14 +112,14 @@ diff -ruN '--exclude=version.h' pristine/ngtcp2-1.0.1/lib/includes/ngtcp2/ngtcp2
 +/**
   * @function
   *
-  * `ngtcp2_conn_open_bidi_stream` opens new bidirectional stream.  The
-diff -ruN '--exclude=version.h' pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.c ngtcp2-1.0.1/lib/ngtcp2_conn.c
---- pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.c	2023-10-23 19:41:18.000000000 +0800
-+++ ngtcp2-1.0.1/lib/ngtcp2_conn.c	2026-08-05 15:47:20.593679400 +0800
-@@ -1599,6 +1599,15 @@
+  * `ngtcp2_conn_server_new` creates new :type:`ngtcp2_conn`, and
+diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/ngtcp2-1.25.0/lib/ngtcp2_conn.c ngtcp2-1.25.0/lib/ngtcp2_conn.c
+--- pristine/ngtcp2-1.25.0/lib/ngtcp2_conn.c	2026-07-26 15:55:55.000000000 +0800
++++ ngtcp2-1.25.0/lib/ngtcp2_conn.c	2026-08-06 07:16:59.593404200 +0800
+@@ -1820,6 +1820,14 @@
+   pktns_free(&conn->pktns, conn->mem);
    pktns_del(conn->hs_pktns, conn->mem);
    pktns_del(conn->in_pktns, conn->mem);
- 
 +  if (conn->custom_tp) {
 +    size_t i;
 +
@@ -128,11 +128,10 @@ diff -ruN '--exclude=version.h' pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.c ngtcp2-1
 +    }
 +    ngtcp2_mem_free(conn->mem, conn->custom_tp);
 +  }
-+
-   ngtcp2_mem_free(conn->mem, conn->qlog.buf.begin);
  
    ngtcp2_pmtud_del(conn->pmtud);
-@@ -11683,13 +11692,219 @@
+   ngtcp2_pv_del(conn->pv);
+@@ -12004,6 +12012,78 @@
    return &conn->local.transport_params;
  }
  
@@ -211,6 +210,10 @@ diff -ruN '--exclude=version.h' pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.c ngtcp2-1
  ngtcp2_ssize ngtcp2_conn_encode_local_transport_params(ngtcp2_conn *conn,
                                                         uint8_t *dest,
                                                         size_t destlen) {
+@@ -12013,10 +12093,144 @@
+ ngtcp2_ssize ngtcp2_conn_encode_local_transport_params2(const ngtcp2_conn *conn,
+                                                         uint8_t *dest,
+                                                         size_t destlen) {
 +  if (conn->custom_tp_len) {
 +    size_t i, len = 0;
 +    uint8_t greasebuf[4];
@@ -352,10 +355,10 @@ diff -ruN '--exclude=version.h' pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.c ngtcp2-1
  int ngtcp2_conn_open_bidi_stream(ngtcp2_conn *conn, int64_t *pstream_id,
                                   void *stream_user_data) {
    int rv;
-diff -ruN '--exclude=version.h' pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.h ngtcp2-1.0.1/lib/ngtcp2_conn.h
---- pristine/ngtcp2-1.0.1/lib/ngtcp2_conn.h	2023-10-23 19:41:18.000000000 +0800
-+++ ngtcp2-1.0.1/lib/ngtcp2_conn.h	2026-08-05 09:49:30.221811800 +0800
-@@ -358,6 +358,12 @@
+diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/ngtcp2-1.25.0/lib/ngtcp2_conn.h ngtcp2-1.25.0/lib/ngtcp2_conn.h
+--- pristine/ngtcp2-1.25.0/lib/ngtcp2_conn.h	2026-07-26 15:55:55.000000000 +0800
++++ ngtcp2-1.25.0/lib/ngtcp2_conn.h	2026-08-06 06:42:32.937783200 +0800
+@@ -326,6 +326,12 @@
    ngtcp2_objalloc strm_objalloc;
    ngtcp2_conn_state state;
    ngtcp2_callbacks callbacks;
