@@ -90,7 +90,7 @@ COPY nghttp3-fp.patch nghttp3-${NGHTTP3_COMMIT}/
 RUN cd nghttp3-${NGHTTP3_COMMIT} && \
     patch -p1 < nghttp3-fp.patch && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 -DBUILD_TESTING=OFF .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=1 -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 -DBUILD_TESTING=OFF .. && \
     cmake --build . --config Release --target install
 
 RUN curl -L https://github.com/ngtcp2/ngtcp2/archive/refs/tags/v${NGTCP2_COMMIT}.tar.gz -o ngtcp2-${NGTCP2_COMMIT}.tar.gz && \
@@ -101,7 +101,7 @@ COPY ngtcp2-fp.patch ngtcp2-${NGTCP2_COMMIT}/
 RUN cd ngtcp2-${NGTCP2_COMMIT} && \
     patch -p1 < ngtcp2-fp.patch && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=1 -DCMAKE_INSTALL_PREFIX=./installed \
     -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 \
     -DENABLE_LIB_ONLY=1 \
     -DENABLE_OPENSSL=0 \

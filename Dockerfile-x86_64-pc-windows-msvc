@@ -132,12 +132,12 @@ RUN echo "cd C:/brotli && del build && \
     \
     cd C:/nghttp3 && del build && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 -DBUILD_TESTING=OFF .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=1 -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 -DBUILD_TESTING=OFF .. && \
     cmake --build . --config Release --target install &&\
     \
     cd C:/ngtcp2 && del build && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 -DENABLE_OPENSSL=0 -DENABLE_BORINGSSL=1 -DBUILD_TESTING=OFF -DBORINGSSL_INCLUDE_DIR=C:/boringssl/build/include -DBORINGSSL_LIBRARIES=C:/boringssl/build/ssl.lib;C:/boringssl/build/crypto.lib;ws2_32;bcrypt .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=1 -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 -DENABLE_OPENSSL=0 -DENABLE_BORINGSSL=1 -DBUILD_TESTING=OFF -DBORINGSSL_INCLUDE_DIR=C:/boringssl/build/include -DBORINGSSL_LIBRARIES=C:/boringssl/build/ssl.lib;C:/boringssl/build/crypto.lib;ws2_32;bcrypt .. && \
     cmake --build . --config Release --target install &&\
     \
     set CFLAGS=-DNGHTTP2_STATICLIB=1 -DNGTCP2_STATICLIB=1 -DNGHTTP3_STATICLIB=1 && \
