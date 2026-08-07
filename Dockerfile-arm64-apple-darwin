@@ -158,10 +158,12 @@ RUN cd curl-${CURL_COMMIT} && \
 
 COPY curl-socks5-udp.patch curl-${CURL_COMMIT}/
 COPY curl-h3fp.patch curl-${CURL_COMMIT}/
+COPY curl-fix-session-ticket.patch curl-${CURL_COMMIT}/
 
 RUN cd curl-${CURL_COMMIT} && \
     patch -p1 < curl-socks5-udp.patch && \
-    patch -p1 < curl-h3fp.patch
+    patch -p1 < curl-h3fp.patch && \
+    patch -p1 < curl-fix-session-ticket.patch
 
 RUN cd curl-${CURL_COMMIT} && \
     mkdir build && cd build && \

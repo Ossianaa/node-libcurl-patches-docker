@@ -118,11 +118,13 @@ RUN curl -L https://github.com/curl/curl/archive/${CURL_COMMIT}.tar.gz -o curl-$
 COPY curl-${CURL_COMMIT}.patch curl-${CURL_COMMIT}/
 COPY curl-socks5-udp.patch curl-${CURL_COMMIT}/
 COPY curl-h3fp.patch curl-${CURL_COMMIT}/
+COPY curl-fix-session-ticket.patch curl-${CURL_COMMIT}/
 
 RUN cd curl-${CURL_COMMIT} && \
     patch -p1 < curl-${CURL_COMMIT}.patch && \
     patch -p1 < curl-socks5-udp.patch && \
-    patch -p1 < curl-h3fp.patch
+    patch -p1 < curl-h3fp.patch && \
+    patch -p1 < curl-fix-session-ticket.patch
 
 COPY test-fp.c /
 

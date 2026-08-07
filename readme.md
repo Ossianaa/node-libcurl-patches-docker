@@ -10,6 +10,7 @@
 | `nghttp3-fp.patch` | nghttp3 | fingerprint SETTINGS list (`fp_iv`/`fp_ivlen`) sent verbatim in wire order |
 | `ngtcp2-fp.patch` | ngtcp2 | custom transport-parameter list in wire order (`ngtcp2_conn_set_local_transport_params_custom`) |
 | `curl-h3fp.patch` | curl (after base + `curl-socks5-udp.patch`) | `CURLOPT_HTTP3_FP_QUIC/SETTINGS/TRANSPORT_PARAMS/TLS` (331-334) + QUIC brotli cert compression |
+| `curl-fix-session-ticket.patch` | curl (last) | declare `Curl_ssl_session_get_ticket` in `vtls.h` (missing prototype breaks clang builds, which error on implicit declarations; gcc C89 builds only warned) |
 
 See `lib/vquic/curl_ngtcp2.c` (quic_fp_parse_*) for the option string formats.
 

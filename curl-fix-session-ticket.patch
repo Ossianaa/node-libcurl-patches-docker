@@ -1,0 +1,15 @@
+--- a/lib/vtls/vtls.h
++++ b/lib/vtls/vtls.h
+@@ -122,6 +122,12 @@ void Curl_ssl_kill_session(struct Curl_ssl_session *session);
+  * (e.g. decrement refcount).
+  */
+ void Curl_ssl_kill_session(struct Curl_ssl_session *session);
++/* Get the TLS session ticket of the current connection, if available.
++ * Declared here because getinfo.c uses it for CURLINFO_SSL_SEESION_TICKET.
++ */
++CURLcode Curl_ssl_session_get_ticket(struct Curl_easy *data,
++                                     const unsigned char **out_ticket,
++                                     size_t *out_len);
+ /* delete a session from the cache
+  * Sessionid mutex must be locked (see Curl_ssl_sessionid_lock).
+  * This will call engine-specific curlssl_session_free function, which must
