@@ -934,3 +934,22 @@ index dbcd009d72..98eb324f8c 100644
  };
  
  CURLcode vquic_ctx_init(struct cf_quic_ctx *qctx);
+
+diff --git a/lib/vquic/curl_ngtcp2.c b/lib/vquic/curl_ngtcp2.c
+--- a/lib/vquic/curl_ngtcp2.c
++++ b/lib/vquic/curl_ngtcp2.c
+@@ -2780,9 +2780,12 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+ 
+     /* Resolve the relay address for the UDP filter. With the default
+      * (blocking) resolver this returns RESOLVED/ERROR; builds with a
+-     * threaded resolver may return PENDING, which fails the transfer. */
++     * threaded resolver (e.g. macOS) may return PENDING, in which case
++     * the resolve completes in a background thread and we wait for it. */
+     rc = Curl_resolv(data, relay_ip, relay_port, TRUE, &dns);
+-    if(rc == CURLRESOLV_ERROR || !dns || !dns->addr) {
++    if(rc == CURLRESOLV_PENDING)
++      result = Curl_resolver_wait_resolv(data, &dns);
++    if(result || rc == CURLRESOLV_ERROR || !dns || !dns->addr) {
+       if(dns)
+         Curl_resolv_unlock(data, dns);
+       result = CURLE_COULDNT_RESOLVE_PROXY;
