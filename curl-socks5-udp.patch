@@ -479,6 +479,12 @@ index 7d681e5853..eace63985b 100644
  };
  
  /* How to access `call_data` from a cf_ngtcp2 filter */
+@@ -2349,4 +2349,5 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
+   memset(ctx, 0, sizeof(*ctx));
+   ctx->qlogfd = -1;
++  ctx->socks5_control_fd = CURL_SOCKET_BAD; /* memset zeroed it; restore -1 guard */
+   ctx->call_data = save;
+ }
 @@ -2372,6 +2379,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
              SOCKERRNO == EINTR);
      }
