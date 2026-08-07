@@ -90,7 +90,7 @@ index 50db016..7992c7c 100644
  
    /* -- below this are pointers to binary data that cannot be strdup'ed. --- */
 diff --git a/lib/vquic/curl_ngtcp2.c b/lib/vquic/curl_ngtcp2.c
-index eace639..e827601 100644
+index 4659a62..9ae56ce 100644
 --- a/lib/vquic/curl_ngtcp2.c
 +++ b/lib/vquic/curl_ngtcp2.c
 @@ -75,7 +75,6 @@
@@ -129,7 +129,7 @@ index eace639..e827601 100644
  };
  
  /* How to access `call_data` from a cf_ngtcp2 filter */
-@@ -334,9 +347,449 @@ static void qlog_callback(void *user_data, uint32_t flags,
+@@ -334,9 +347,484 @@ static void qlog_callback(void *user_data, uint32_t flags,
  
  }
  
@@ -301,6 +301,7 @@ index eace639..e827601 100644
 + * Returns TRUE on success. */
 +static bool quic_fp_parse_tp_value(struct cf_ngtcp2_ctx *ctx,
 +                                   struct Curl_easy *data,
++                                   uint64_t id,
 +                                   const char *val, size_t vallen,
 +                                   ngtcp2_tp_entry *ent)
 +{
@@ -310,6 +311,40 @@ index eace639..e827601 100644
 +  }
 +  if(vallen == 4 && !strncmp(val, "AUTO", 4)) {
 +    ent->type = NGTCP2_TP_ENTRY_TYPE_CID;
++    return TRUE;
++  }
++  if(id == 0x4752 /* google_version */) {
++    /* Chrome sends its initial QUIC version label here, a 32-bit
++       big-endian value (e.g. 1 for QUIC v1), not a varint. Impersonation
++       checkers parse the 4-byte label, so encode it verbatim. */
++    char buf[32];
++    uint64_t value;
++
++    if(vallen >= sizeof(buf)) {
++      failf(data, "invalid google_version value '%.*s'",
++            (int)vallen, val);
++      return FALSE;
++    }
++    memcpy(buf, val, vallen);
++    buf[vallen] = '\0';
++    if(!quic_fp_parse_u64(buf, &value) || value > 0xffffffffULL) {
++      failf(data, "invalid google_version value '%.*s'",
++            (int)vallen, val);
++      return FALSE;
++    }
++    if(ctx->fp_tp_blob_len + 4 > sizeof(ctx->fp_tp_blob)) {
++      failf(data, "CURLOPT_HTTP3_FP_TRANSPORT_PARAMS too long");
++      return FALSE;
++    }
++    ent->type = NGTCP2_TP_ENTRY_TYPE_RAW;
++    ent->value = value;
++    ent->data = ctx->fp_tp_blob + ctx->fp_tp_blob_len;
++    ent->datalen = 4;
++    ctx->fp_tp_blob[ctx->fp_tp_blob_len + 0] = (uint8_t)(value >> 24);
++    ctx->fp_tp_blob[ctx->fp_tp_blob_len + 1] = (uint8_t)(value >> 16);
++    ctx->fp_tp_blob[ctx->fp_tp_blob_len + 2] = (uint8_t)(value >> 8);
++    ctx->fp_tp_blob[ctx->fp_tp_blob_len + 3] = (uint8_t)value;
++    ctx->fp_tp_blob_len += 4;
 +    return TRUE;
 +  }
 +  if(memchr(val, '@', vallen)) {
@@ -502,7 +537,7 @@ index eace639..e827601 100644
 +      idbuf[colon - p] = '\0';
 +      if(quic_fp_parse_u64(idbuf, &id)) {
 +        ent->id = id;
-+        if(!quic_fp_parse_tp_value(ctx, data, colon + 1,
++        if(!quic_fp_parse_tp_value(ctx, data, id, colon + 1,
 +                                   (size_t)(end - colon - 1), ent))
 +          return CURLE_BAD_FUNCTION_ARGUMENT;
 +        ctx->fp_tp_len++;
@@ -582,7 +617,7 @@ index eace639..e827601 100644
  {
    ngtcp2_settings *s = &ctx->settings;
    ngtcp2_transport_params *t = &ctx->transport_params;
-@@ -349,7 +802,6 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+@@ -349,7 +837,6 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
    s->log_printf = NULL;
  #endif
  
@@ -590,7 +625,7 @@ index eace639..e827601 100644
    s->initial_ts = pktx->ts;
    s->handshake_timeout = QUIC_HANDSHAKE_TIMEOUT;
    s->max_window = 100 * ctx->max_stream_window;
-@@ -365,6 +817,9 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+@@ -365,6 +852,9 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
    if(ctx->qlogfd != -1) {
      s->qlog_write = qlog_callback;
    }
@@ -600,7 +635,7 @@ index eace639..e827601 100644
  }
  
  #ifdef USE_OPENSSL
-@@ -455,6 +910,20 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -455,6 +945,20 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
      SSL_CTX_set_keylog_callback(ssl_ctx, keylog_callback);
    }
  
@@ -621,7 +656,7 @@ index eace639..e827601 100644
    /* OpenSSL always tries to verify the peer, this only says whether it should
     * fail to connect if the verification fails, or if it should continue
     * anyway. In the latter case the result of the verification is checked with
-@@ -462,6 +931,196 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -462,6 +966,196 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
    SSL_CTX_set_verify(ssl_ctx, conn->ssl_config.verifypeer ?
                       SSL_VERIFY_PEER : SSL_VERIFY_NONE, NULL);
  
@@ -818,7 +853,7 @@ index eace639..e827601 100644
    /* give application a chance to interfere with SSL set up. */
    if(data->set.ssl.fsslctx) {
      /* When a user callback is installed to modify the SSL_CTX,
-@@ -530,8 +1189,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -530,8 +1224,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    SSL_set_connect_state(ctx->ssl);
    SSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
  
@@ -829,7 +864,7 @@ index eace639..e827601 100644
    if(alpn)
      SSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
  
-@@ -595,13 +1254,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -595,13 +1289,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    }
  
    /* strip the first byte (the length) from NGHTTP3_ALPN_H3 */
@@ -846,7 +881,7 @@ index eace639..e827601 100644
    return CURLE_OK;
  }
  #elif defined(USE_WOLFSSL)
-@@ -725,8 +1382,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -725,8 +1417,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    wolfSSL_set_connect_state(ctx->ssl);
    wolfSSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
  
@@ -857,7 +892,7 @@ index eace639..e827601 100644
    if(alpn)
      wolfSSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
  
-@@ -1390,6 +2047,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
+@@ -1390,6 +2082,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
    }
  
    nghttp3_settings_default(&ctx->h3settings);
@@ -892,7 +927,7 @@ index eace639..e827601 100644
  
    rc = nghttp3_conn_client_new(&ctx->h3conn,
                                 &ngh3_callbacks,
-@@ -2450,19 +3135,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2450,19 +3170,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(result)
      return result;
  
@@ -930,7 +965,7 @@ index eace639..e827601 100644
  
    result = vquic_ctx_init(&ctx->q);
    if(result)
-@@ -2492,6 +3191,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2492,6 +3226,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(rc)
      return CURLE_QUIC_CONNECT_ERROR;
  
