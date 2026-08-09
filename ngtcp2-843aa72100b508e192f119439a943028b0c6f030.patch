@@ -1,10 +1,12 @@
-diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/ngtcp2-1.25.0/lib/includes/ngtcp2/ngtcp2.h ngtcp2-1.25.0/lib/includes/ngtcp2/ngtcp2.h
---- pristine/ngtcp2-1.25.0/lib/includes/ngtcp2/ngtcp2.h	2026-07-26 15:55:55.000000000 +0800
-+++ ngtcp2-1.25.0/lib/includes/ngtcp2/ngtcp2.h	2026-08-06 06:42:32.924789300 +0800
-@@ -4202,6 +4202,111 @@
+diff --git a/lib/includes/ngtcp2/ngtcp2.h b/lib/includes/ngtcp2/ngtcp2.h
+index 9bc9a7b..ad72dc1 100644
+--- a/lib/includes/ngtcp2/ngtcp2.h
++++ b/lib/includes/ngtcp2/ngtcp2.h
+@@ -4201,6 +4201,111 @@ NGTCP2_EXTERN int ngtcp2_conn_client_new_versioned(
+   int transport_params_version, const ngtcp2_transport_params *params,
    const ngtcp2_mem *mem, void *user_data);
  
- /**
++/**
 + * @enum
 + *
 + * :type:`ngtcp2_tp_entry_type` is the encoding type of a fingerprint
@@ -109,14 +111,14 @@ diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--
 +NGTCP2_EXTERN int ngtcp2_conn_set_local_transport_params_custom(
 +    ngtcp2_conn *conn, const ngtcp2_tp_entry *entries, size_t nentries);
 +
-+/**
+ /**
   * @function
   *
-  * `ngtcp2_conn_server_new` creates new :type:`ngtcp2_conn`, and
-diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/ngtcp2-1.25.0/lib/ngtcp2_conn.c ngtcp2-1.25.0/lib/ngtcp2_conn.c
---- pristine/ngtcp2-1.25.0/lib/ngtcp2_conn.c	2026-07-26 15:55:55.000000000 +0800
-+++ ngtcp2-1.25.0/lib/ngtcp2_conn.c	2026-08-06 07:16:59.593404200 +0800
-@@ -1820,6 +1820,14 @@
+diff --git a/lib/ngtcp2_conn.c b/lib/ngtcp2_conn.c
+index 12cca44..7e11090 100644
+--- a/lib/ngtcp2_conn.c
++++ b/lib/ngtcp2_conn.c
+@@ -1820,6 +1820,14 @@ void ngtcp2_conn_del(ngtcp2_conn *conn) {
    pktns_free(&conn->pktns, conn->mem);
    pktns_del(conn->hs_pktns, conn->mem);
    pktns_del(conn->in_pktns, conn->mem);
@@ -131,7 +133,7 @@ diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--
  
    ngtcp2_pmtud_del(conn->pmtud);
    ngtcp2_pv_del(conn->pv);
-@@ -12004,6 +12012,78 @@
+@@ -12004,6 +12012,78 @@ ngtcp2_conn_get_local_transport_params2(const ngtcp2_conn *conn) {
    return &conn->local.transport_params;
  }
  
@@ -210,7 +212,7 @@ diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--
  ngtcp2_ssize ngtcp2_conn_encode_local_transport_params(ngtcp2_conn *conn,
                                                         uint8_t *dest,
                                                         size_t destlen) {
-@@ -12013,10 +12093,144 @@
+@@ -12013,10 +12093,144 @@ ngtcp2_ssize ngtcp2_conn_encode_local_transport_params(ngtcp2_conn *conn,
  ngtcp2_ssize ngtcp2_conn_encode_local_transport_params2(const ngtcp2_conn *conn,
                                                          uint8_t *dest,
                                                          size_t destlen) {
@@ -355,10 +357,11 @@ diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--
  int ngtcp2_conn_open_bidi_stream(ngtcp2_conn *conn, int64_t *pstream_id,
                                   void *stream_user_data) {
    int rv;
-diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--exclude=*.o' pristine/ngtcp2-1.25.0/lib/ngtcp2_conn.h ngtcp2-1.25.0/lib/ngtcp2_conn.h
---- pristine/ngtcp2-1.25.0/lib/ngtcp2_conn.h	2026-07-26 15:55:55.000000000 +0800
-+++ ngtcp2-1.25.0/lib/ngtcp2_conn.h	2026-08-06 06:42:32.937783200 +0800
-@@ -326,6 +326,12 @@
+diff --git a/lib/ngtcp2_conn.h b/lib/ngtcp2_conn.h
+index 18af117..35532cf 100644
+--- a/lib/ngtcp2_conn.h
++++ b/lib/ngtcp2_conn.h
+@@ -326,6 +326,12 @@ struct ngtcp2_conn {
    ngtcp2_objalloc strm_objalloc;
    ngtcp2_conn_state state;
    ngtcp2_callbacks callbacks;
@@ -371,3 +374,67 @@ diff -ruN '--exclude=version.h' '--exclude=buildtest' '--exclude=buildmingw' '--
    /* rcid is a connection ID present in Initial or 0-RTT packet from
       client as destination connection ID.  Server uses this field to
       check that duplicated Initial or 0-RTT packet are indeed sent to
+diff --git a/lib/ngtcp2_fmt.h b/lib/ngtcp2_fmt.h
+index 9d01ffc..4d2f92a 100644
+--- a/lib/ngtcp2_fmt.h
++++ b/lib/ngtcp2_fmt.h
+@@ -74,7 +74,6 @@ static inline ngtcp2_fmt_hex ngtcp2_fmt_hex_char_init(char n) {
+     int: ngtcp2_fmt_hex_int_init,                                              \
+     short int: ngtcp2_fmt_hex_short_int_init,                                  \
+     signed char: ngtcp2_fmt_hex_signed_char_init,                              \
+-    char: ngtcp2_fmt_hex_char_init,                                            \
+     unsigned long long int: ngtcp2_fmt_hex_init,                               \
+     unsigned long int: ngtcp2_fmt_hex_init,                                    \
+     unsigned int: ngtcp2_fmt_hex_init,                                         \
+@@ -131,7 +130,6 @@ static inline ngtcp2_fmt_hexw ngtcp2_fmt_hexw_char_init(char n, size_t width) {
+     int: ngtcp2_fmt_hexw_int_init,                                             \
+     short int: ngtcp2_fmt_hexw_short_int_init,                                 \
+     signed char: ngtcp2_fmt_hexw_signed_char_init,                             \
+-    char: ngtcp2_fmt_hexw_char_init,                                           \
+     unsigned long long int: ngtcp2_fmt_hexw_init,                              \
+     unsigned long int: ngtcp2_fmt_hexw_init,                                   \
+     unsigned int: ngtcp2_fmt_hexw_init,                                        \
+@@ -218,7 +216,6 @@ char *ngtcp2_fmt_write_printable_ascii(char *dest,
+     int: ngtcp2_fmt_write_int64,                                               \
+     short int: ngtcp2_fmt_write_int64,                                         \
+     signed char: ngtcp2_fmt_write_int64,                                       \
+-    char: ngtcp2_fmt_write_char,                                               \
+     unsigned long long int: ngtcp2_fmt_write_uint64,                           \
+     unsigned long int: ngtcp2_fmt_write_uint64,                                \
+     unsigned int: ngtcp2_fmt_write_uint64,                                     \
+diff --git a/lib/ngtcp2_macro.h b/lib/ngtcp2_macro.h
+index ea98c9e..6eb0111 100644
+--- a/lib/ngtcp2_macro.h
++++ b/lib/ngtcp2_macro.h
+@@ -84,7 +84,6 @@ ngtcp2_max_def(unsigned_char, unsigned char)
+       int: ngtcp2_max_int,                                                     \
+       short int: ngtcp2_max_short_int,                                         \
+       signed char: ngtcp2_max_signed_char,                                     \
+-      char: ngtcp2_max_char,                                                   \
+       unsigned long long int: ngtcp2_max_unsigned_long_long_int,               \
+       unsigned long int: ngtcp2_max_unsigned_long_int,                         \
+       unsigned int: ngtcp2_max_unsigned_int,                                   \
+@@ -92,7 +91,6 @@ ngtcp2_max_def(unsigned_char, unsigned char)
+       unsigned char: ngtcp2_max_unsigned_char),                                \
+     short int: ngtcp2_max_short_int,                                           \
+     signed char: ngtcp2_max_signed_char,                                       \
+-    char: ngtcp2_max_char,                                                     \
+     unsigned long long int: ngtcp2_max_unsigned_long_long_int,                 \
+     unsigned long int: ngtcp2_max_unsigned_long_int,                           \
+     unsigned int: ngtcp2_max_unsigned_int,                                     \
+@@ -124,7 +122,6 @@ ngtcp2_min_def(unsigned_char, unsigned char)
+       int: ngtcp2_min_int,                                                     \
+       short int: ngtcp2_min_short_int,                                         \
+       signed char: ngtcp2_min_signed_char,                                     \
+-      char: ngtcp2_min_char,                                                   \
+       unsigned long long int: ngtcp2_min_unsigned_long_long_int,               \
+       unsigned long int: ngtcp2_min_unsigned_long_int,                         \
+       unsigned int: ngtcp2_min_unsigned_int,                                   \
+@@ -132,7 +129,6 @@ ngtcp2_min_def(unsigned_char, unsigned char)
+       unsigned char: ngtcp2_min_unsigned_char),                                \
+     short int: ngtcp2_min_short_int,                                           \
+     signed char: ngtcp2_min_signed_char,                                       \
+-    char: ngtcp2_min_char,                                                     \
+     unsigned long long int: ngtcp2_min_unsigned_long_long_int,                 \
+     unsigned long int: ngtcp2_min_unsigned_long_int,                           \
+     unsigned int: ngtcp2_min_unsigned_int,                                     \

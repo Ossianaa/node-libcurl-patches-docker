@@ -25,10 +25,10 @@ index 1b19c681d2..ae12c4c872 100644
    if(WIN32)
      option(USE_WIN32_LDAP "Use Windows LDAP implementation" ON)
 diff --git a/include/curl/curl.h b/include/curl/curl.h
-index bf71d82fb4..794b3b7dad 100644
+index bf71d82fb4..0e04bc524e 100644
 --- a/include/curl/curl.h
 +++ b/include/curl/curl.h
-@@ -2209,7 +2209,16 @@ typedef enum {
+@@ -2209,7 +2209,42 @@ typedef enum {
  
    /* set a specific client IP for HAProxy PROXY protocol header? */
    CURLOPT(CURLOPT_HAPROXY_CLIENT_IP, CURLOPTTYPE_STRINGPOINT, 323),
@@ -43,10 +43,36 @@ index bf71d82fb4..794b3b7dad 100644
 +  /* Specify preferred signature algorithms for certificate verification
 +     (BoringSSL-only). Comma-separated list as a single string. */
 +  CURLOPT(CURLOPT_TLS_VERIFY_SIGALGS, CURLOPTTYPE_STRINGPOINT, 330),
++  /* HTTP/3 fingerprint profile: source connection ID length, e.g. "scid=0"
++     (a zero-length client connection ID, as sent by recent Chrome).
++     Default: 20. */
++  CURLOPT(CURLOPT_HTTP3_FP_QUIC, CURLOPTTYPE_STRINGPOINT, 331),
++  /* HTTP/3 SETTINGS frame entries, in wire order, e.g.
++     "1:65536;6:262144;7:100;51:1;GREASE". The keyword GREASE inserts a
++     randomly generated unknown setting. */
++  CURLOPT(CURLOPT_HTTP3_FP_SETTINGS, CURLOPTTYPE_STRINGPOINT, 332),
++  /* QUIC transport parameters, in wire order, e.g.
++     "12584:0x4f524947;9:103;1:30000;7:6291456;15:AUTO;4:15728640;GREASE;
++     32:65536;3:1472;17:1@1,GREASE;8:100;6:6291456;12583:174718;5:6291456".
++     Values: decimal or 0x-hex varint, AUTO (source connection ID), GREASE
++     (random), or chosen@v1,v2 for version_information. */
++  CURLOPT(CURLOPT_HTTP3_FP_TRANSPORT_PARAMS, CURLOPTTYPE_STRINGPOINT, 333),
++  /* BoringSSL fingerprint options for QUIC, e.g. "ciphers=1,2,3;alps=h3;
++     grease=off". ciphers lists TLS 1.3 cipher flags (1=AES128-GCM,
++     2=AES256-GCM, 3=CHACHA20); alps sets the ALPS protocol; grease=off
++     disables TLS-level GREASE. */
++  CURLOPT(CURLOPT_HTTP3_FP_TLS, CURLOPTTYPE_STRINGPOINT, 334),
++  /* HTTP/3-specific TLS extension permutation. Chrome uses a different
++     ClientHello extension order for HTTP/3 than for HTTP/2, so this
++     overrides CURLOPT_TLS_EXTENSION_PERMUTATION on QUIC connections. */
++  CURLOPT(CURLOPT_TLS_EXTENSION_PERMUTATION_HTTP3, CURLOPTTYPE_STRINGPOINT, 335),
++  /* HTTP/3-specific signature algorithms (see CURLOPT_TLS_VERIFY_SIGALGS).
++     Overrides it on QUIC connections. */
++  CURLOPT(CURLOPT_TLS_VERIFY_SIGALGS_HTTP3, CURLOPTTYPE_STRINGPOINT, 336),
    CURLOPT_LASTENTRY /* the last unused */
  } CURLoption;
  
-@@ -2941,7 +2950,8 @@ typedef enum {
+@@ -2941,7 +2976,8 @@ typedef enum {
    CURLINFO_CAPATH           = CURLINFO_STRING + 62,
    CURLINFO_XFER_ID          = CURLINFO_OFF_T + 63,
    CURLINFO_CONN_ID          = CURLINFO_OFF_T + 64,
@@ -69,6 +95,37 @@ index dbc895d263..a5058560f8 100644
  
  #define PROXY_H2_NW_RECV_CHUNKS  (H2_TUNNEL_WINDOW_SIZE / PROXY_H2_CHUNK_SIZE)
  #define PROXY_H2_NW_SEND_CHUNKS   1
+diff --git a/lib/connect.c b/lib/connect.c
+index c7ba3e20e3..48b06e88a7 100644
+--- a/lib/connect.c
++++ b/lib/connect.c
+@@ -1215,12 +1215,20 @@ connect_sub_chain:
+   /* sub-chain connected, do we need to add more? */
+ #ifndef CURL_DISABLE_PROXY
+   if(ctx->state < CF_SETUP_CNNCT_SOCKS && cf->conn->bits.socksproxy) {
+-    result = Curl_cf_socks_proxy_insert_after(cf, data);
+-    if(result)
+-      return result;
+-    ctx->state = CF_SETUP_CNNCT_SOCKS;
+-    if(!cf->next || !cf->next->connected)
+-      goto connect_sub_chain;
++    /* For QUIC transport, SOCKS5 UDP ASSOCIATE is handled in the QUIC layer.
++     * Only insert the SOCKS TCP filter for non-QUIC transports. */
++    if(ctx->transport != TRNSPRT_QUIC) {
++      result = Curl_cf_socks_proxy_insert_after(cf, data);
++      if(result)
++        return result;
++      ctx->state = CF_SETUP_CNNCT_SOCKS;
++      if(!cf->next || !cf->next->connected)
++        goto connect_sub_chain;
++    }
++    else {
++      ctx->state = CF_SETUP_CNNCT_SOCKS;
++      /* For QUIC, the SOCKS5 UDP ASSOCIATE was handled in the QUIC layer */
++    }
+   }
+ 
+   if(ctx->state < CF_SETUP_CNNCT_HTTP_PROXY && cf->conn->bits.httpproxy) {
 diff --git a/lib/curl_setup.h b/lib/curl_setup.h
 index ba14972e23..2b357e2811 100644
 --- a/lib/curl_setup.h
@@ -80,858 +137,6 @@ index ba14972e23..2b357e2811 100644
 -#endif /* HEADER_CURL_SETUP_H */
 +#endif /* HEADER_CURL_SETUP_H */
 \ No newline at end of file
-diff --git a/lib/curl_setup_bak.h b/lib/curl_setup_bak.h
-new file mode 100644
-index 0000000000..5be85c2791
---- /dev/null
-+++ b/lib/curl_setup_bak.h
-@@ -0,0 +1,846 @@
-+#ifndef HEADER_CURL_SETUP_H
-+#define HEADER_CURL_SETUP_H
-+/***************************************************************************
-+ *                                  _   _ ____  _
-+ *  Project                     ___| | | |  _ \| |
-+ *                             / __| | | | |_) | |
-+ *                            | (__| |_| |  _ <| |___
-+ *                             \___|\___/|_| \_\_____|
-+ *
-+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
-+ *
-+ * This software is licensed as described in the file COPYING, which
-+ * you should have received as part of this distribution. The terms
-+ * are also available at https://curl.se/docs/copyright.html.
-+ *
-+ * You may opt to use, copy, modify, merge, publish, distribute and/or sell
-+ * copies of the Software, and permit persons to whom the Software is
-+ * furnished to do so, under the terms of the COPYING file.
-+ *
-+ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
-+ * KIND, either express or implied.
-+ *
-+ * SPDX-License-Identifier: curl
-+ *
-+ ***************************************************************************/
-+
-+#if defined(BUILDING_LIBCURL) && !defined(CURL_NO_OLDIES)
-+#define CURL_NO_OLDIES
-+#endif
-+
-+/*
-+ * Disable Visual Studio warnings:
-+ * 4127 "conditional expression is constant"
-+ */
-+#ifdef _MSC_VER
-+#pragma warning(disable:4127)
-+#endif
-+
-+/*
-+ * Define WIN32 when build target is Win32 API
-+ */
-+
-+#if (defined(_WIN32) || defined(__WIN32__)) && !defined(WIN32)
-+#define WIN32
-+#endif
-+
-+#ifdef WIN32
-+/*
-+ * Don't include unneeded stuff in Windows headers to avoid compiler
-+ * warnings and macro clashes.
-+ * Make sure to define this macro before including any Windows headers.
-+ */
-+#  ifndef WIN32_LEAN_AND_MEAN
-+#    define WIN32_LEAN_AND_MEAN
-+#  endif
-+#  ifndef NOGDI
-+#    define NOGDI
-+#  endif
-+/* Detect Windows App environment which has a restricted access
-+ * to the Win32 APIs. */
-+# if (defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0602)) || \
-+  defined(WINAPI_FAMILY)
-+#  include <winapifamily.h>
-+#  if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP) &&  \
-+     !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
-+#    define CURL_WINDOWS_APP
-+#  endif
-+# endif
-+#endif
-+
-+/*
-+ * Include configuration script results or hand-crafted
-+ * configuration file for platforms which lack config tool.
-+ */
-+#ifdef HAVE_CONFIG_H
-+
-+#include "curl_config.h"
-+
-+#else /* HAVE_CONFIG_H */
-+
-+#ifdef _WIN32_WCE
-+#  include "config-win32ce.h"
-+#else
-+#  ifdef WIN32
-+#    include "config-win32.h"
-+#  endif
-+#endif
-+
-+#ifdef macintosh
-+#  include "config-mac.h"
-+#endif
-+
-+#ifdef __riscos__
-+#  include "config-riscos.h"
-+#endif
-+
-+#ifdef __AMIGA__
-+#  include "config-amigaos.h"
-+#endif
-+
-+#ifdef __OS400__
-+#  include "config-os400.h"
-+#endif
-+
-+#ifdef __PLAN9__
-+#  include "config-plan9.h"
-+#endif
-+
-+#ifdef MSDOS
-+#  include "config-dos.h"
-+#endif
-+
-+#endif /* HAVE_CONFIG_H */
-+
-+/* ================================================================ */
-+/* Definition of preprocessor macros/symbols which modify compiler  */
-+/* behavior or generated code characteristics must be done here,   */
-+/* as appropriate, before any system header file is included. It is */
-+/* also possible to have them defined in the config file included   */
-+/* before this point. As a result of all this we frown inclusion of */
-+/* system header files in our config files, avoid this at any cost. */
-+/* ================================================================ */
-+
-+/*
-+ * AIX 4.3 and newer needs _THREAD_SAFE defined to build
-+ * proper reentrant code. Others may also need it.
-+ */
-+
-+#ifdef NEED_THREAD_SAFE
-+#  ifndef _THREAD_SAFE
-+#    define _THREAD_SAFE
-+#  endif
-+#endif
-+
-+/*
-+ * Tru64 needs _REENTRANT set for a few function prototypes and
-+ * things to appear in the system header files. Unixware needs it
-+ * to build proper reentrant code. Others may also need it.
-+ */
-+
-+#ifdef NEED_REENTRANT
-+#  ifndef _REENTRANT
-+#    define _REENTRANT
-+#  endif
-+#endif
-+
-+/* Solaris needs this to get a POSIX-conformant getpwuid_r */
-+#if defined(sun) || defined(__sun)
-+#  ifndef _POSIX_PTHREAD_SEMANTICS
-+#    define _POSIX_PTHREAD_SEMANTICS 1
-+#  endif
-+#endif
-+
-+/* ================================================================ */
-+/*  If you need to include a system header file for your platform,  */
-+/*  please, do it beyond the point further indicated in this file.  */
-+/* ================================================================ */
-+
-+/*
-+ * Disable other protocols when http is the only one desired.
-+ */
-+
-+#ifdef HTTP_ONLY
-+#  ifndef CURL_DISABLE_DICT
-+#    define CURL_DISABLE_DICT
-+#  endif
-+#  ifndef CURL_DISABLE_FILE
-+#    define CURL_DISABLE_FILE
-+#  endif
-+#  ifndef CURL_DISABLE_FTP
-+#    define CURL_DISABLE_FTP
-+#  endif
-+#  ifndef CURL_DISABLE_GOPHER
-+#    define CURL_DISABLE_GOPHER
-+#  endif
-+#  ifndef CURL_DISABLE_IMAP
-+#    define CURL_DISABLE_IMAP
-+#  endif
-+#  ifndef CURL_DISABLE_LDAP
-+#    define CURL_DISABLE_LDAP
-+#  endif
-+#  ifndef CURL_DISABLE_LDAPS
-+#    define CURL_DISABLE_LDAPS
-+#  endif
-+#  ifndef CURL_DISABLE_MQTT
-+#    define CURL_DISABLE_MQTT
-+#  endif
-+#  ifndef CURL_DISABLE_POP3
-+#    define CURL_DISABLE_POP3
-+#  endif
-+#  ifndef CURL_DISABLE_RTSP
-+#    define CURL_DISABLE_RTSP
-+#  endif
-+#  ifndef CURL_DISABLE_SMB
-+#    define CURL_DISABLE_SMB
-+#  endif
-+#  ifndef CURL_DISABLE_SMTP
-+#    define CURL_DISABLE_SMTP
-+#  endif
-+#  ifndef CURL_DISABLE_TELNET
-+#    define CURL_DISABLE_TELNET
-+#  endif
-+#  ifndef CURL_DISABLE_TFTP
-+#    define CURL_DISABLE_TFTP
-+#  endif
-+#endif
-+
-+/*
-+ * When http is disabled rtsp is not supported.
-+ */
-+
-+#if defined(CURL_DISABLE_HTTP) && !defined(CURL_DISABLE_RTSP)
-+#  define CURL_DISABLE_RTSP
-+#endif
-+
-+/* ================================================================ */
-+/* No system header file shall be included in this file before this */
-+/* point.                                                           */
-+/* ================================================================ */
-+
-+/*
-+ * OS/400 setup file includes some system headers.
-+ */
-+
-+#ifdef __OS400__
-+#  include "setup-os400.h"
-+#endif
-+
-+/*
-+ * VMS setup file includes some system headers.
-+ */
-+
-+#ifdef __VMS
-+#  include "setup-vms.h"
-+#endif
-+
-+/*
-+ * Windows setup file includes some system headers.
-+ */
-+#undef HAVE_WINDOWS_H
-+#ifdef HAVE_WINDOWS_H
-+#  include "setup-win32.h"
-+#endif
-+
-+#include <curl/system.h>
-+
-+/*
-+ * Use getaddrinfo to resolve the IPv4 address literal. If the current network
-+ * interface doesn't support IPv4, but supports IPv6, NAT64, and DNS64,
-+ * performing this task will result in a synthesized IPv6 address.
-+ */
-+#if defined(__APPLE__) && !defined(USE_ARES)
-+#include <TargetConditionals.h>
-+#define USE_RESOLVE_ON_IPS 1
-+#  if TARGET_OS_MAC && !(defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) && \
-+     defined(ENABLE_IPV6)
-+#    define CURL_MACOS_CALL_COPYPROXIES 1
-+#  endif
-+#endif
-+
-+#ifdef USE_LWIPSOCK
-+#  include <lwip/init.h>
-+#  include <lwip/sockets.h>
-+#  include <lwip/netdb.h>
-+#endif
-+
-+#ifdef HAVE_EXTRA_STRICMP_H
-+#  include <extra/stricmp.h>
-+#endif
-+
-+#ifdef HAVE_EXTRA_STRDUP_H
-+#  include <extra/strdup.h>
-+#endif
-+
-+#ifdef __AMIGA__
-+#  ifdef __amigaos4__
-+#    define __USE_INLINE__
-+     /* use our own resolver which uses runtime feature detection */
-+#    define CURLRES_AMIGA
-+     /* getaddrinfo() currently crashes bsdsocket.library, so disable */
-+#    undef HAVE_GETADDRINFO
-+#    if !(defined(__NEWLIB__) || \
-+          (defined(__CLIB2__) && defined(__THREAD_SAFE)))
-+       /* disable threaded resolver with clib2 - requires newlib or clib-ts */
-+#      undef USE_THREADS_POSIX
-+#    endif
-+#  endif
-+#  include <exec/types.h>
-+#  include <exec/execbase.h>
-+#  include <proto/exec.h>
-+#  include <proto/dos.h>
-+#  include <unistd.h>
-+#  if defined(HAVE_PROTO_BSDSOCKET_H) && \
-+    (!defined(__amigaos4__) || defined(USE_AMISSL))
-+     /* use bsdsocket.library directly, instead of libc networking functions */
-+#    define _SYS_MBUF_H /* m_len define clashes with curl */
-+#    include <proto/bsdsocket.h>
-+#    ifdef __amigaos4__
-+       int Curl_amiga_select(int nfds, fd_set *readfds, fd_set *writefds,
-+                             fd_set *errorfds, struct timeval *timeout);
-+#      define select(a,b,c,d,e) Curl_amiga_select(a,b,c,d,e)
-+#    else
-+#      define select(a,b,c,d,e) WaitSelect(a,b,c,d,e,0)
-+#    endif
-+     /* must not use libc's fcntl() on bsdsocket.library sockfds! */
-+#    undef HAVE_FCNTL
-+#    undef HAVE_FCNTL_O_NONBLOCK
-+#  else
-+     /* use libc networking and hence close() and fnctl() */
-+#    undef HAVE_CLOSESOCKET_CAMEL
-+#    undef HAVE_IOCTLSOCKET_CAMEL
-+#  endif
-+/*
-+ * In clib2 arpa/inet.h warns that some prototypes may clash
-+ * with bsdsocket.library. This avoids the definition of those.
-+ */
-+#  define __NO_NET_API
-+#endif
-+
-+#include <stdio.h>
-+#include <assert.h>
-+
-+#ifdef __TANDEM /* for ns*-tandem-nsk systems */
-+# if ! defined __LP64
-+#  include <floss.h> /* FLOSS is only used for 32-bit builds. */
-+# endif
-+#endif
-+
-+#ifndef STDC_HEADERS /* no standard C headers! */
-+#include <curl/stdcheaders.h>
-+#endif
-+
-+#ifdef __POCC__
-+#  include <sys/types.h>
-+#  include <unistd.h>
-+#  define sys_nerr EILSEQ
-+#endif
-+
-+/*
-+ * Salford-C kludge section (mostly borrowed from wxWidgets).
-+ */
-+#ifdef __SALFORDC__
-+  #pragma suppress 353             /* Possible nested comments */
-+  #pragma suppress 593             /* Define not used */
-+  #pragma suppress 61              /* enum has no name */
-+  #pragma suppress 106             /* unnamed, unused parameter */
-+  #include <clib.h>
-+#endif
-+
-+/*
-+ * Large file (>2Gb) support using WIN32 functions.
-+ */
-+
-+#ifdef USE_WIN32_LARGE_FILES
-+#  include <io.h>
-+#  include <sys/types.h>
-+#  include <sys/stat.h>
-+#  undef  lseek
-+#  define lseek(fdes,offset,whence)  _lseeki64(fdes, offset, whence)
-+#  undef  fstat
-+#  define fstat(fdes,stp)            _fstati64(fdes, stp)
-+#  undef  stat
-+#  define stat(fname,stp)            curlx_win32_stat(fname, stp)
-+#  define struct_stat                struct _stati64
-+#  define LSEEK_ERROR                (__int64)-1
-+#  define open                       curlx_win32_open
-+#  define fopen(fname,mode)          curlx_win32_fopen(fname, mode)
-+#  define access(fname,mode)         curlx_win32_access(fname, mode)
-+   int curlx_win32_open(const char *filename, int oflag, ...);
-+   int curlx_win32_stat(const char *path, struct_stat *buffer);
-+   FILE *curlx_win32_fopen(const char *filename, const char *mode);
-+   int curlx_win32_access(const char *path, int mode);
-+#endif
-+
-+/*
-+ * Small file (<2Gb) support using WIN32 functions.
-+ */
-+
-+#ifdef USE_WIN32_SMALL_FILES
-+#  include <io.h>
-+#  include <sys/types.h>
-+#  include <sys/stat.h>
-+#  ifndef _WIN32_WCE
-+#    undef  lseek
-+#    define lseek(fdes,offset,whence)  _lseek(fdes, (long)offset, whence)
-+#    define fstat(fdes,stp)            _fstat(fdes, stp)
-+#    define stat(fname,stp)            curlx_win32_stat(fname, stp)
-+#    define struct_stat                struct _stat
-+#    define open                       curlx_win32_open
-+#    define fopen(fname,mode)          curlx_win32_fopen(fname, mode)
-+#    define access(fname,mode)         curlx_win32_access(fname, mode)
-+     int curlx_win32_stat(const char *path, struct_stat *buffer);
-+     int curlx_win32_open(const char *filename, int oflag, ...);
-+     FILE *curlx_win32_fopen(const char *filename, const char *mode);
-+     int curlx_win32_access(const char *path, int mode);
-+#  endif
-+#  define LSEEK_ERROR                (long)-1
-+#endif
-+
-+#ifndef struct_stat
-+#  define struct_stat struct stat
-+#endif
-+
-+#ifndef LSEEK_ERROR
-+#  define LSEEK_ERROR (off_t)-1
-+#endif
-+
-+#ifndef SIZEOF_TIME_T
-+/* assume default size of time_t to be 32 bit */
-+#define SIZEOF_TIME_T 4
-+#endif
-+
-+/*
-+ * Default sizeof(off_t) in case it hasn't been defined in config file.
-+ */
-+
-+#ifndef SIZEOF_OFF_T
-+#  if defined(__VMS) && !defined(__VAX)
-+#    if defined(_LARGEFILE)
-+#      define SIZEOF_OFF_T 8
-+#    endif
-+#  elif defined(__OS400__) && defined(__ILEC400__)
-+#    if defined(_LARGE_FILES)
-+#      define SIZEOF_OFF_T 8
-+#    endif
-+#  elif defined(__MVS__) && defined(__IBMC__)
-+#    if defined(_LP64) || defined(_LARGE_FILES)
-+#      define SIZEOF_OFF_T 8
-+#    endif
-+#  elif defined(__370__) && defined(__IBMC__)
-+#    if defined(_LP64) || defined(_LARGE_FILES)
-+#      define SIZEOF_OFF_T 8
-+#    endif
-+#  endif
-+#  ifndef SIZEOF_OFF_T
-+#    define SIZEOF_OFF_T 4
-+#  endif
-+#endif
-+
-+#if (SIZEOF_CURL_OFF_T < 8)
-+#error "too small curl_off_t"
-+#else
-+   /* assume SIZEOF_CURL_OFF_T == 8 */
-+#  define CURL_OFF_T_MAX CURL_OFF_T_C(0x7FFFFFFFFFFFFFFF)
-+#endif
-+#define CURL_OFF_T_MIN (-CURL_OFF_T_MAX - CURL_OFF_T_C(1))
-+
-+#if (SIZEOF_TIME_T == 4)
-+#  ifdef HAVE_TIME_T_UNSIGNED
-+#  define TIME_T_MAX UINT_MAX
-+#  define TIME_T_MIN 0
-+#  else
-+#  define TIME_T_MAX INT_MAX
-+#  define TIME_T_MIN INT_MIN
-+#  endif
-+#else
-+#  ifdef HAVE_TIME_T_UNSIGNED
-+#  define TIME_T_MAX 0xFFFFFFFFFFFFFFFF
-+#  define TIME_T_MIN 0
-+#  else
-+#  define TIME_T_MAX 0x7FFFFFFFFFFFFFFF
-+#  define TIME_T_MIN (-TIME_T_MAX - 1)
-+#  endif
-+#endif
-+
-+#ifndef SIZE_T_MAX
-+/* some limits.h headers have this defined, some don't */
-+#if defined(SIZEOF_SIZE_T) && (SIZEOF_SIZE_T > 4)
-+#define SIZE_T_MAX 18446744073709551615U
-+#else
-+#define SIZE_T_MAX 4294967295U
-+#endif
-+#endif
-+
-+#ifndef SSIZE_T_MAX
-+/* some limits.h headers have this defined, some don't */
-+#if defined(SIZEOF_SIZE_T) && (SIZEOF_SIZE_T > 4)
-+#define SSIZE_T_MAX 9223372036854775807
-+#else
-+#define SSIZE_T_MAX 2147483647
-+#endif
-+#endif
-+
-+/*
-+ * Arg 2 type for gethostname in case it hasn't been defined in config file.
-+ */
-+
-+#ifndef GETHOSTNAME_TYPE_ARG2
-+#  ifdef USE_WINSOCK
-+#    define GETHOSTNAME_TYPE_ARG2 int
-+#  else
-+#    define GETHOSTNAME_TYPE_ARG2 size_t
-+#  endif
-+#endif
-+
-+/* Below we define some functions. They should
-+
-+   4. set the SIGALRM signal timeout
-+   5. set dir/file naming defines
-+   */
-+
-+#ifdef WIN32
-+
-+#  define DIR_CHAR      "\\"
-+
-+#else /* WIN32 */
-+
-+#  ifdef MSDOS  /* Watt-32 */
-+
-+#    include <sys/ioctl.h>
-+#    define select(n,r,w,x,t) select_s(n,r,w,x,t)
-+#    define ioctl(x,y,z) ioctlsocket(x,y,(char *)(z))
-+#    include <tcp.h>
-+#    ifdef word
-+#      undef word
-+#    endif
-+#    ifdef byte
-+#      undef byte
-+#    endif
-+
-+#  endif /* MSDOS */
-+
-+#  ifdef __minix
-+     /* Minix 3 versions up to at least 3.1.3 are missing these prototypes */
-+     extern char *strtok_r(char *s, const char *delim, char **last);
-+     extern struct tm *gmtime_r(const time_t * const timep, struct tm *tmp);
-+#  endif
-+
-+#  define DIR_CHAR      "/"
-+
-+#  ifndef fileno /* sunos 4 have this as a macro! */
-+     int fileno(FILE *stream);
-+#  endif
-+
-+#endif /* WIN32 */
-+
-+/*
-+ * msvc 6.0 requires PSDK in order to have INET6_ADDRSTRLEN
-+ * defined in ws2tcpip.h as well as to provide IPv6 support.
-+ * Does not apply if lwIP is used.
-+ */
-+
-+#if defined(_MSC_VER) && !defined(__POCC__) && !defined(USE_LWIPSOCK)
-+#  if !defined(HAVE_WS2TCPIP_H) || \
-+     ((_MSC_VER < 1300) && !defined(INET6_ADDRSTRLEN))
-+#    undef HAVE_GETADDRINFO_THREADSAFE
-+#    undef HAVE_FREEADDRINFO
-+#    undef HAVE_GETADDRINFO
-+#    undef ENABLE_IPV6
-+#  endif
-+#endif
-+
-+/* ---------------------------------------------------------------- */
-+/*             resolver specialty compile-time defines              */
-+/*         CURLRES_* defines to use in the host*.c sources          */
-+/* ---------------------------------------------------------------- */
-+
-+/*
-+ * lcc-win32 doesn't have _beginthreadex(), lacks threads support.
-+ */
-+
-+#if defined(__LCC__) && defined(WIN32)
-+#  undef USE_THREADS_POSIX
-+#  undef USE_THREADS_WIN32
-+#endif
-+
-+/*
-+ * MSVC threads support requires a multi-threaded runtime library.
-+ * _beginthreadex() is not available in single-threaded ones.
-+ */
-+
-+#if defined(_MSC_VER) && !defined(__POCC__) && !defined(_MT)
-+#  undef USE_THREADS_POSIX
-+#  undef USE_THREADS_WIN32
-+#endif
-+
-+/*
-+ * Mutually exclusive CURLRES_* definitions.
-+ */
-+
-+#if defined(ENABLE_IPV6) && defined(HAVE_GETADDRINFO)
-+#  define CURLRES_IPV6
-+#else
-+#  define CURLRES_IPV4
-+#endif
-+
-+#ifdef USE_ARES
-+#  define CURLRES_ASYNCH
-+#  define CURLRES_ARES
-+/* now undef the stock libc functions just to avoid them being used */
-+#  undef HAVE_GETADDRINFO
-+#  undef HAVE_FREEADDRINFO
-+#elif defined(USE_THREADS_POSIX) || defined(USE_THREADS_WIN32)
-+#  define CURLRES_ASYNCH
-+#  define CURLRES_THREADED
-+#else
-+#  define CURLRES_SYNCH
-+#endif
-+
-+/* ---------------------------------------------------------------- */
-+
-+/*
-+ * msvc 6.0 does not have struct sockaddr_storage and
-+ * does not define IPPROTO_ESP in winsock2.h. But both
-+ * are available if PSDK is properly installed.
-+ */
-+
-+#if defined(_MSC_VER) && !defined(__POCC__)
-+#  if !defined(HAVE_WINSOCK2_H) || ((_MSC_VER < 1300) && !defined(IPPROTO_ESP))
-+#    undef HAVE_STRUCT_SOCKADDR_STORAGE
-+#  endif
-+#endif
-+
-+/*
-+ * Intentionally fail to build when using msvc 6.0 without PSDK installed.
-+ * The brave of heart can circumvent this, defining ALLOW_MSVC6_WITHOUT_PSDK
-+ * in lib/config-win32.h although absolutely discouraged and unsupported.
-+ */
-+
-+#if defined(_MSC_VER) && !defined(__POCC__)
-+#  if !defined(HAVE_WINDOWS_H) || ((_MSC_VER < 1300) && !defined(_FILETIME_))
-+#    if !defined(ALLOW_MSVC6_WITHOUT_PSDK)
-+#      error MSVC 6.0 requires "February 2003 Platform SDK" a.k.a. \
-+             "Windows Server 2003 PSDK"
-+#    else
-+#      define CURL_DISABLE_LDAP 1
-+#    endif
-+#  endif
-+#endif
-+
-+#if defined(HAVE_LIBIDN2) && defined(HAVE_IDN2_H) && !defined(USE_WIN32_IDN)
-+/* The lib and header are present */
-+#define USE_LIBIDN2
-+#endif
-+
-+#if defined(USE_LIBIDN2) && defined(USE_WIN32_IDN)
-+#error "Both libidn2 and WinIDN are enabled, choose one."
-+#endif
-+
-+#define LIBIDN_REQUIRED_VERSION "0.4.1"
-+
-+#if defined(USE_GNUTLS) || defined(USE_OPENSSL) || defined(USE_MBEDTLS) || \
-+  defined(USE_WOLFSSL) || defined(USE_SCHANNEL) || defined(USE_SECTRANSP) || \
-+  defined(USE_BEARSSL) || defined(USE_RUSTLS)
-+#define USE_SSL    /* SSL support has been enabled */
-+#endif
-+
-+/* Single point where USE_SPNEGO definition might be defined */
-+#if !defined(CURL_DISABLE_NEGOTIATE_AUTH) && \
-+    (defined(HAVE_GSSAPI) || defined(USE_WINDOWS_SSPI))
-+#define USE_SPNEGO
-+#endif
-+
-+/* Single point where USE_KERBEROS5 definition might be defined */
-+#if !defined(CURL_DISABLE_KERBEROS_AUTH) && \
-+    (defined(HAVE_GSSAPI) || defined(USE_WINDOWS_SSPI))
-+#define USE_KERBEROS5
-+#endif
-+
-+/* Single point where USE_NTLM definition might be defined */
-+#if !defined(CURL_DISABLE_NTLM)
-+#  if defined(USE_OPENSSL) || defined(USE_MBEDTLS) ||                   \
-+  defined(USE_GNUTLS) || defined(USE_SECTRANSP) ||                      \
-+  defined(USE_OS400CRYPTO) || defined(USE_WIN32_CRYPTO) ||              \
-+  (defined(USE_WOLFSSL) && defined(HAVE_WOLFSSL_DES_ECB_ENCRYPT))
-+#    define USE_CURL_NTLM_CORE
-+#  endif
-+#  if defined(USE_CURL_NTLM_CORE) || defined(USE_WINDOWS_SSPI)
-+#    define USE_NTLM
-+#  endif
-+#endif
-+
-+#ifdef CURL_WANTS_CA_BUNDLE_ENV
-+#error "No longer supported. Set CURLOPT_CAINFO at runtime instead."
-+#endif
-+
-+#if defined(USE_LIBSSH2) || defined(USE_LIBSSH) || defined(USE_WOLFSSH)
-+#define USE_SSH
-+#endif
-+
-+/*
-+ * Provide a mechanism to silence picky compilers, such as gcc 4.6+.
-+ * Parameters should of course normally not be unused, but for example when
-+ * we have multiple implementations of the same interface it may happen.
-+ */
-+
-+#if defined(__GNUC__) && ((__GNUC__ >= 3) || \
-+  ((__GNUC__ == 2) && defined(__GNUC_MINOR__) && (__GNUC_MINOR__ >= 7)))
-+#  define UNUSED_PARAM __attribute__((__unused__))
-+#  define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
-+#else
-+#  define UNUSED_PARAM /* NOTHING */
-+#  define WARN_UNUSED_RESULT
-+#endif
-+
-+/*
-+ * Include macros and defines that should only be processed once.
-+ */
-+
-+#ifndef HEADER_CURL_SETUP_ONCE_H
-+#include "curl_setup_once.h"
-+#endif
-+
-+/*
-+ * Definition of our NOP statement Object-like macro
-+ */
-+
-+#ifndef Curl_nop_stmt
-+#  define Curl_nop_stmt do { } while(0)
-+#endif
-+
-+/*
-+ * Ensure that Winsock and lwIP TCP/IP stacks are not mixed.
-+ */
-+
-+#if defined(__LWIP_OPT_H__) || defined(LWIP_HDR_OPT_H)
-+#  if defined(SOCKET) || \
-+     defined(USE_WINSOCK) || \
-+     defined(HAVE_WINSOCK2_H) || \
-+     defined(HAVE_WS2TCPIP_H)
-+#    error "WinSock and lwIP TCP/IP stack definitions shall not coexist!"
-+#  endif
-+#endif
-+
-+/*
-+ * shutdown() flags for systems that don't define them
-+ */
-+
-+#ifndef SHUT_RD
-+#define SHUT_RD 0x00
-+#endif
-+
-+#ifndef SHUT_WR
-+#define SHUT_WR 0x01
-+#endif
-+
-+#ifndef SHUT_RDWR
-+#define SHUT_RDWR 0x02
-+#endif
-+
-+/* Define S_ISREG if not defined by system headers, e.g. MSVC */
-+#if !defined(S_ISREG) && defined(S_IFMT) && defined(S_IFREG)
-+#define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
-+#endif
-+
-+/* Define S_ISDIR if not defined by system headers, e.g. MSVC */
-+#if !defined(S_ISDIR) && defined(S_IFMT) && defined(S_IFDIR)
-+#define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
-+#endif
-+
-+/* In Windows the default file mode is text but an application can override it.
-+Therefore we specify it explicitly. https://github.com/curl/curl/pull/258
-+*/
-+#if defined(WIN32) || defined(MSDOS)
-+#define FOPEN_READTEXT "rt"
-+#define FOPEN_WRITETEXT "wt"
-+#define FOPEN_APPENDTEXT "at"
-+#elif defined(__CYGWIN__)
-+/* Cygwin has specific behavior we need to address when WIN32 is not defined.
-+https://cygwin.com/cygwin-ug-net/using-textbinary.html
-+For write we want our output to have line endings of LF and be compatible with
-+other Cygwin utilities. For read we want to handle input that may have line
-+endings either CRLF or LF so 't' is appropriate.
-+*/
-+#define FOPEN_READTEXT "rt"
-+#define FOPEN_WRITETEXT "w"
-+#define FOPEN_APPENDTEXT "a"
-+#else
-+#define FOPEN_READTEXT "r"
-+#define FOPEN_WRITETEXT "w"
-+#define FOPEN_APPENDTEXT "a"
-+#endif
-+
-+/* for systems that don't detect this in configure */
-+#ifndef CURL_SA_FAMILY_T
-+#  if defined(HAVE_SA_FAMILY_T)
-+#    define CURL_SA_FAMILY_T sa_family_t
-+#  elif defined(HAVE_ADDRESS_FAMILY)
-+#    define CURL_SA_FAMILY_T ADDRESS_FAMILY
-+#  else
-+/* use a sensible default */
-+#    define CURL_SA_FAMILY_T unsigned short
-+#  endif
-+#endif
-+
-+/* Some convenience macros to get the larger/smaller value out of two given.
-+   We prefix with CURL to prevent name collisions. */
-+#define CURLMAX(x,y) ((x)>(y)?(x):(y))
-+#define CURLMIN(x,y) ((x)<(y)?(x):(y))
-+
-+/* A convenience macro to provide both the string literal and the length of
-+   the string literal in one go, useful for functions that take "string,len"
-+   as their argument */
-+#define STRCONST(x) x,sizeof(x)-1
-+
-+/* Some versions of the Android SDK is missing the declaration */
-+#if defined(HAVE_GETPWUID_R) && defined(HAVE_DECL_GETPWUID_R_MISSING)
-+struct passwd;
-+int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf,
-+               size_t buflen, struct passwd **result);
-+#endif
-+
-+#ifdef DEBUGBUILD
-+#define UNITTEST
-+#else
-+#define UNITTEST static
-+#endif
-+
-+#if defined(USE_NGHTTP2) || defined(USE_HYPER)
-+#define USE_HTTP2
-+#endif
-+
-+#if (defined(USE_NGTCP2) && defined(USE_NGHTTP3)) || \
-+    defined(USE_QUICHE) || defined(USE_MSH3)
-+#define ENABLE_QUIC
-+#define USE_HTTP3
-+#endif
-+
-+/* Certain Windows implementations are not aligned with what curl expects,
-+   so always use the local one on this platform. E.g. the mingw-w64
-+   implementation can return wrong results for non-ASCII inputs. */
-+#if defined(HAVE_BASENAME) && defined(WIN32)
-+#undef HAVE_BASENAME
-+#endif
-+
-+#if defined(USE_UNIX_SOCKETS) && defined(WIN32)
-+#  if !defined(UNIX_PATH_MAX)
-+     /* Replicating logic present in afunix.h
-+        (distributed with newer Windows 10 SDK versions only) */
-+#    define UNIX_PATH_MAX 108
-+     /* !checksrc! disable TYPEDEFSTRUCT 1 */
-+     typedef struct sockaddr_un {
-+       ADDRESS_FAMILY sun_family;
-+       char sun_path[UNIX_PATH_MAX];
-+     } SOCKADDR_UN, *PSOCKADDR_UN;
-+#    define WIN32_SOCKADDR_UN
-+#  endif
-+#endif
-+
-+/* OpenSSLv3 marks DES, MD5 and ENGINE functions deprecated but we have no
-+   replacements (yet) so tell the compiler to not warn for them. */
-+#ifdef USE_OPENSSL
-+#define OPENSSL_SUPPRESS_DEPRECATED
-+#endif
-+
-+#endif /* HEADER_CURL_SETUP_H */
 diff --git a/lib/dynhds.c b/lib/dynhds.c
 index 979b3e825b..602d0a1fbe 100644
 --- a/lib/dynhds.c
@@ -1174,7 +379,7 @@ index 40ef70df50..e5d85af83b 100644
    }
  
 diff --git a/lib/http2.c b/lib/http2.c
-index c8b059498f..1da2d21f06 100644
+index c8b059498f..90a5163840 100644
 --- a/lib/http2.c
 +++ b/lib/http2.c
 @@ -69,7 +69,7 @@
@@ -1360,7 +565,16 @@ index c8b059498f..1da2d21f06 100644
  
  /* How to access `call_data` from a cf_h2 filter */
  #undef CF_CTX_CALL_DATA
-@@ -496,15 +627,28 @@ static CURLcode cf_h2_ctx_init(struct Curl_cfilter *cf,
+@@ -196,6 +327,8 @@ struct stream_ctx {
+   bool bodystarted;
+   bool send_closed; /* transfer is done sending, we might have still
+                         buffered data in stream->sendbuf to upload. */
++  bool priority_submitted; /* h2_progress_egress has sent the PRIORITY
++                              frame for this stream (once-only) */
+ };
+ 
+ #define H2_STREAM_CTX(d)    ((struct stream_ctx *)(((d) && (d)->req.p.http)? \
+@@ -496,15 +629,28 @@ static CURLcode cf_h2_ctx_init(struct Curl_cfilter *cf,
      }
    }
  
@@ -1392,7 +606,7 @@ index c8b059498f..1da2d21f06 100644
    /* all set, traffic will be send on connect */
    result = CURLE_OK;
    CURL_TRC_CF(data, cf, "[0] created h2 session%s",
-@@ -1750,11 +1894,15 @@ out:
+@@ -1750,11 +1896,15 @@ out:
    return rv;
  }
  
@@ -1409,7 +623,7 @@ index c8b059498f..1da2d21f06 100644
  }
  
  static int sweight_in_effect(const struct Curl_easy *data)
-@@ -1778,7 +1926,7 @@ static void h2_pri_spec(struct Curl_easy *data,
+@@ -1778,7 +1928,7 @@ static void h2_pri_spec(struct Curl_easy *data,
    int32_t depstream_id = depstream? depstream->id:0;
    nghttp2_priority_spec_init(pri_spec, depstream_id,
                               sweight_wanted(data),
@@ -1418,7 +632,7 @@ index c8b059498f..1da2d21f06 100644
    data->state.priority = *prio;
  }
  
-@@ -1797,18 +1945,20 @@ static CURLcode h2_progress_egress(struct Curl_cfilter *cf,
+@@ -1797,18 +1947,25 @@ static CURLcode h2_progress_egress(struct Curl_cfilter *cf,
  
    if(stream && stream->id > 0 &&
       ((sweight_wanted(data) != sweight_in_effect(data)) ||
@@ -1436,19 +650,24 @@ index c8b059498f..1da2d21f06 100644
 -                                 stream->id, &pri_spec);
 -    if(rv)
 -      goto out;
-+    if(stream->id != 1 && stream->id != data->set.http2_stream_id) {
++    if(stream->id != 1 && stream->id != data->set.http2_stream_id &&
++       !stream->priority_submitted) {
 +      DEBUGF(LOG_CF(data, cf, "[h2sid=%d] Queuing PRIORITY",
 +                    stream->id));
 +      DEBUGASSERT(stream->id != -1);
++      /* init the spec from the wanted values, otherwise the submitted
++         frame carries uninitialized (platform-divergent) values */
++      h2_pri_spec(data, &pri_spec);
 +      rv = nghttp2_submit_priority(ctx->h2, NGHTTP2_FLAG_NONE,
 +                                    stream->id, &pri_spec);
 +      if(rv)
 +        goto out;
++      stream->priority_submitted = TRUE;
 +    }
    }
  
    ctx->nw_out_blocked = 0;
-@@ -2073,6 +2223,20 @@ static ssize_t h2_submit(struct stream_ctx **pstream,
+@@ -2073,6 +2230,20 @@ static ssize_t h2_submit(struct stream_ctx **pstream,
    if(!nghttp2_session_check_request_allowed(ctx->h2))
      CURL_TRC_CF(data, cf, "send request NOT allowed (via nghttp2)");
  
@@ -1470,10 +689,10 @@ index c8b059498f..1da2d21f06 100644
    case HTTPREQ_POST:
    case HTTPREQ_POST_FORM:
 diff --git a/lib/setopt.c b/lib/setopt.c
-index 0d399adfe8..8e02e1d696 100644
+index 0d399adfe8..64f7bf1873 100644
 --- a/lib/setopt.c
 +++ b/lib/setopt.c
-@@ -3170,6 +3170,43 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
+@@ -3170,6 +3170,67 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
    case CURLOPT_QUICK_EXIT:
      data->set.quick_exit = (0 != va_arg(param, long)) ? 1L:0L;
      break;
@@ -1485,6 +704,30 @@ index 0d399adfe8..8e02e1d696 100644
 +    /* Preferred signature algorithms for certificate verification (BoringSSL)
 +       stored as a comma-separated string. */
 +    result = Curl_setstropt(&data->set.str[STRING_SSL_VERIFY_SIGALGS],
++                            va_arg(param, char *));
++    break;
++  case CURLOPT_HTTP3_FP_QUIC:
++    result = Curl_setstropt(&data->set.str[STRING_HTTP3_FP_QUIC],
++                            va_arg(param, char *));
++    break;
++  case CURLOPT_HTTP3_FP_SETTINGS:
++    result = Curl_setstropt(&data->set.str[STRING_HTTP3_FP_SETTINGS],
++                            va_arg(param, char *));
++    break;
++  case CURLOPT_HTTP3_FP_TRANSPORT_PARAMS:
++    result = Curl_setstropt(&data->set.str[STRING_HTTP3_FP_TRANSPORT_PARAMS],
++                            va_arg(param, char *));
++    break;
++  case CURLOPT_HTTP3_FP_TLS:
++    result = Curl_setstropt(&data->set.str[STRING_HTTP3_FP_TLS],
++                            va_arg(param, char *));
++    break;
++  case CURLOPT_TLS_EXTENSION_PERMUTATION_HTTP3:
++    result = Curl_setstropt(&data->set.str[STRING_TLS_EXTENSION_PERMUTATION_HTTP3],
++                            va_arg(param, char *));
++    break;
++  case CURLOPT_TLS_VERIFY_SIGALGS_HTTP3:
++    result = Curl_setstropt(&data->set.str[STRING_SSL_VERIFY_SIGALGS_HTTP3],
 +                            va_arg(param, char *));
 +    break;
 +#ifdef USE_HTTP2
@@ -1531,6 +774,431 @@ index 645cc1a9cd..a5076cfd8e 100644
  #define SSL_connect SSL_CONNECT
  #define SSL_free SSL_FREE
  #define SSL_get1_session SSL_GET1_SESSION
+diff --git a/lib/socks.c b/lib/socks.c
+index a7b5ab07e4..4b240d87d0 100644
+--- a/lib/socks.c
++++ b/lib/socks.c
+@@ -1053,6 +1053,390 @@ CONNECT_REQ_SEND:
+   return CURLPX_OK; /* Proxy was successful! */
+ }
+ 
++/* Wait for a socket to become readable/writable within the timeout.
++ * Returns 1 if ready, 0 on timeout, -1 on error. */
++static int socks5_wait_sock(curl_socket_t sockfd, bool readable,
++                            timediff_t timeout_ms)
++{
++  fd_set fds;
++  struct timeval tv;
++  int rc;
++
++  if(timeout_ms < 0)
++    timeout_ms = 30000; /* 30s default */
++  if(timeout_ms > 30000)
++    timeout_ms = 30000; /* cap at 30s per wait */
++
++  FD_ZERO(&fds);
++  FD_SET(sockfd, &fds);
++  tv.tv_sec = (long)(timeout_ms / 1000);
++  tv.tv_usec = (long)((timeout_ms % 1000) * 1000);
++
++  if(readable)
++    rc = select((int)sockfd + 1, &fds, NULL, NULL, &tv);
++  else
++    rc = select((int)sockfd + 1, NULL, &fds, NULL, &tv);
++
++  return (rc > 0) ? 1 : (rc < 0 ? -1 : 0);
++}
++
++/* Receive exactly len bytes from the socket, handling EAGAIN and partial
++ * reads. Returns CURLE_OK on success. */
++static CURLcode socks5_recv_all(curl_socket_t sockfd, unsigned char *buf,
++                                size_t len)
++{
++  size_t got = 0;
++
++  while(got < len) {
++    ssize_t n = sread(sockfd, buf + got, len - got);
++    if(n < 0) {
++      if(SOCKERRNO == EAGAIN || SOCKERRNO == EWOULDBLOCK) {
++        if(!socks5_wait_sock(sockfd, TRUE, 30000))
++          return CURLE_OPERATION_TIMEDOUT;
++        continue;
++      }
++      return CURLE_COULDNT_CONNECT;
++    }
++    if(n == 0)
++      return CURLE_COULDNT_CONNECT; /* connection closed */
++    got += (size_t)n;
++  }
++  return CURLE_OK;
++}
++
++/* Send all bytes, handling EAGAIN and partial writes.
++ * Returns CURLE_OK on success. */
++static CURLcode socks5_send_all(curl_socket_t sockfd,
++                                const unsigned char *buf, size_t len)
++{
++  size_t sent = 0;
++
++  while(sent < len) {
++    ssize_t n = swrite(sockfd, buf + sent, len - sent);
++    if(n < 0) {
++      if(SOCKERRNO == EAGAIN || SOCKERRNO == EWOULDBLOCK) {
++        if(!socks5_wait_sock(sockfd, FALSE, 30000))
++          return CURLE_OPERATION_TIMEDOUT;
++        continue;
++      }
++      return CURLE_COULDNT_CONNECT;
++    }
++    if(n == 0)
++      return CURLE_COULDNT_CONNECT; /* connection closed */
++    sent += (size_t)n;
++  }
++  return CURLE_OK;
++}
++
++/*
++ * SOCKS5 UDP ASSOCIATE - for QUIC/HTTP3 proxy support.
++ *
++ * This function performs the SOCKS5 UDP ASSOCIATE handshake (RFC 1928)
++ * to obtain a UDP relay address from the SOCKS5 proxy.
++ *
++ * After successful completion, relay_ip and relay_port are filled with
++ * the proxy's UDP relay address/port, and *control_fd receives the TCP
++ * control connection socket which MUST be kept open for the lifetime of
++ * the UDP relay session (RFC 1928).
++ *
++ * The caller should then wrap each UDP datagram with a SOCKS5 UDP header:
++ *   +----+------+------+----------+----------+------+
++ *   |RSV | FRAG | ATYP | DST.ADDR | DST.PORT | DATA |
++ *   +----+------+------+----------+----------+------+
++ *   | 2  |  1   |  1   | Variable |    2     | Var  |
++ *   +----+------+------+----------+----------+------+
++ *
++ * Returns CURLE_OK on success.
++ */
++CURLcode Curl_SOCKS5_udp_associate(struct Curl_easy *data,
++                                   const char *proxy_host, int proxy_port,
++                                   const char *proxy_user,
++                                   const char *proxy_passwd,
++                                   const char *target_host, int target_port,
++                                   char *relay_ip, size_t relay_ip_len,
++                                   unsigned short *relay_port,
++                                   curl_socket_t *control_fd)
++{
++  unsigned char buf[1024];
++  CURLcode result;
++  curl_socket_t sockfd = CURL_SOCKET_BAD;
++  int rc;
++  timediff_t timeout_ms;
++  size_t hostname_len;
++  struct Curl_addrinfo *ai = NULL;
++  struct Curl_dns_entry *dns = NULL;
++  enum resolve_t rc_resolve;
++
++  *control_fd = CURL_SOCKET_BAD;
++
++  timeout_ms = Curl_timeleft(data, NULL, TRUE);
++  if(timeout_ms < 0)
++    return CURLE_OPERATION_TIMEDOUT;
++
++  /* Resolve proxy address */
++  rc_resolve = Curl_resolv(data, proxy_host, proxy_port, TRUE, &dns);
++  if(rc_resolve == CURLRESOLV_ERROR)
++    return CURLE_COULDNT_RESOLVE_PROXY;
++  if(rc_resolve == CURLRESOLV_PENDING)
++    return CURLE_AGAIN;
++
++  /* Try each address until one connects */
++  for(ai = dns->addr; ai; ai = ai->ai_next) {
++    sockfd = socket(ai->ai_family, SOCK_STREAM, 0);
++    if(sockfd == CURL_SOCKET_BAD)
++      continue;
++
++    /* Set non-blocking */
++    (void)curlx_nonblock(sockfd, TRUE);
++
++    rc = connect(sockfd, ai->ai_addr, (socklen_t)ai->ai_addrlen);
++    if(rc < 0 && SOCKERRNO != EINPROGRESS &&
++       SOCKERRNO != EWOULDBLOCK /* WSAEWOULDBLOCK on Windows */) {
++      sclose(sockfd);
++      sockfd = CURL_SOCKET_BAD;
++      continue;
++    }
++
++    /* Wait for connection to complete */
++    if(rc < 0) {
++      int error = 0;
++      socklen_t error_len = sizeof(error);
++      if(!socks5_wait_sock(sockfd, FALSE, timeout_ms)) {
++        sclose(sockfd);
++        sockfd = CURL_SOCKET_BAD;
++        continue;
++      }
++      if(getsockopt(sockfd, SOL_SOCKET, SO_ERROR, (char *)&error,
++                    &error_len) < 0 || error != 0) {
++        sclose(sockfd);
++        sockfd = CURL_SOCKET_BAD;
++        continue;
++      }
++    }
++    break; /* connected */
++  }
++
++  if(sockfd == CURL_SOCKET_BAD) {
++    Curl_resolv_unlock(data, dns);
++    return CURLE_COULDNT_CONNECT;
++  }
++  Curl_resolv_unlock(data, dns);
++
++  /* Step 1: SOCKS5 version + authentication methods.
++   * Offer no-auth(0) and username/password(2). */
++  buf[0] = 5; /* VER: SOCKS5 */
++  buf[1] = 2; /* NMETHODS */
++  buf[2] = 0; /* NO AUTHENTICATION REQUIRED */
++  buf[3] = 2; /* USERNAME/PASSWORD */
++  result = socks5_send_all(sockfd, buf, 4);
++  if(result)
++    goto out;
++
++  /* Read auth method response */
++  result = socks5_recv_all(sockfd, buf, 2);
++  if(result)
++    goto out;
++  if(buf[0] != 5) {
++    result = CURLE_COULDNT_CONNECT;
++    goto out;
++  }
++
++  /* Step 2: Handle auth if needed */
++  if(buf[1] == 2) {
++    /* Username/Password auth */
++    size_t ulen, plen, idx;
++    ulen = proxy_user ? strlen(proxy_user) : 0;
++    plen = proxy_passwd ? strlen(proxy_passwd) : 0;
++    if(ulen > 255 || plen > 255) {
++      result = CURLE_COULDNT_CONNECT;
++      goto out;
++    }
++
++    idx = 0;
++    buf[idx++] = 1; /* auth version */
++    buf[idx++] = (unsigned char)ulen;
++    if(ulen)
++      memcpy(&buf[idx], proxy_user, ulen);
++    idx += ulen;
++    buf[idx++] = (unsigned char)plen;
++    if(plen)
++      memcpy(&buf[idx], proxy_passwd, plen);
++    idx += plen;
++
++    result = socks5_send_all(sockfd, buf, idx);
++    if(result)
++      goto out;
++
++    result = socks5_recv_all(sockfd, buf, 2);
++    if(result)
++      goto out;
++    if(buf[1] != 0) { /* status must be 0 */
++      infof(data, "SOCKS5 UDP ASSOCIATE: user rejected by proxy");
++      result = CURLE_COULDNT_CONNECT;
++      goto out;
++    }
++  }
++  else if(buf[1] != 0) {
++    /* No acceptable auth method */
++    infof(data, "SOCKS5 UDP ASSOCIATE: no acceptable auth method (%d)",
++          buf[1]);
++    result = CURLE_COULDNT_CONNECT;
++    goto out;
++  }
++
++  /* Step 3: Send UDP ASSOCIATE request with target as destination */
++  hostname_len = strlen(target_host);
++  {
++    size_t idx = 0;
++    unsigned char addr4[4];
++    buf[idx++] = 5; /* VER */
++    buf[idx++] = 3; /* CMD: UDP ASSOCIATE */
++    buf[idx++] = 0; /* RSV */
++
++    if(1 == Curl_inet_pton(AF_INET, target_host, addr4)) {
++      buf[idx++] = 1; /* ATYP: IPv4 */
++      memcpy(&buf[idx], addr4, 4);
++      idx += 4;
++    }
++    else {
++      buf[idx++] = 3; /* ATYP: DOMAINNAME */
++      if(hostname_len > 255)
++        hostname_len = 255;
++      buf[idx++] = (unsigned char)hostname_len;
++      memcpy(&buf[idx], target_host, hostname_len);
++      idx += hostname_len;
++    }
++    buf[idx++] = (unsigned char)((target_port >> 8) & 0xff);
++    buf[idx++] = (unsigned char)(target_port & 0xff);
++
++    result = socks5_send_all(sockfd, buf, idx);
++    if(result)
++      goto out;
++  }
++
++  /* Step 4: Read UDP ASSOCIATE response */
++  {
++    unsigned char reply[4];
++    unsigned char addr_buf[260];
++
++    result = socks5_recv_all(sockfd, reply, 4);
++    if(result)
++      goto out;
++
++    if(reply[0] != 5) {
++      result = CURLE_COULDNT_CONNECT;
++      goto out;
++    }
++
++    if(reply[1] != 0) {
++      infof(data, "SOCKS5 UDP ASSOCIATE reply error: %d", reply[1]);
++      result = CURLE_COULDNT_CONNECT;
++      goto out;
++    }
++
++    /* Read BND.ADDR based on ATYP */
++    if(reply[3] == 1) {
++      /* IPv4: 4 bytes addr + 2 bytes port */
++      result = socks5_recv_all(sockfd, addr_buf, 6);
++      if(result)
++        goto out;
++      msnprintf(relay_ip, relay_ip_len, "%u.%u.%u.%u",
++                addr_buf[0], addr_buf[1], addr_buf[2], addr_buf[3]);
++      *relay_port = (unsigned short)((addr_buf[4] << 8) | addr_buf[5]);
++    }
++    else if(reply[3] == 3) {
++      /* Domain name: 1 byte length + name + 2 bytes port */
++      unsigned char name_len;
++      result = socks5_recv_all(sockfd, addr_buf, 1);
++      if(result)
++        goto out;
++      name_len = addr_buf[0];
++      result = socks5_recv_all(sockfd, addr_buf, name_len + 2);
++      if(result)
++        goto out;
++      if(name_len < relay_ip_len) {
++        memcpy(relay_ip, addr_buf, name_len);
++        relay_ip[name_len] = '\0';
++      }
++      else {
++        strncpy(relay_ip, proxy_host, relay_ip_len - 1);
++        relay_ip[relay_ip_len - 1] = '\0';
++      }
++      *relay_port = (unsigned short)(
++        (addr_buf[name_len] << 8) | addr_buf[name_len + 1]);
++    }
++    else if(reply[3] == 4) {
++      /* IPv6: 16 bytes addr + 2 bytes port */
++      result = socks5_recv_all(sockfd, addr_buf, 18);
++      if(result)
++        goto out;
++      msnprintf(relay_ip, relay_ip_len,
++                "%02x%02x:%02x%02x:%02x%02x:%02x%02x:"
++                "%02x%02x:%02x%02x:%02x%02x:%02x%02x",
++                addr_buf[0], addr_buf[1], addr_buf[2], addr_buf[3],
++                addr_buf[4], addr_buf[5], addr_buf[6], addr_buf[7],
++                addr_buf[8], addr_buf[9], addr_buf[10], addr_buf[11],
++                addr_buf[12], addr_buf[13], addr_buf[14], addr_buf[15]);
++      *relay_port = (unsigned short)((addr_buf[16] << 8) | addr_buf[17]);
++    }
++    else {
++      infof(data, "SOCKS5 UDP ASSOCIATE: unknown ATYP %d", reply[3]);
++      result = CURLE_COULDNT_CONNECT;
++      goto out;
++    }
++
++    infof(data, "SOCKS5 UDP ASSOCIATE relay: %s:%u",
++          relay_ip, *relay_port);
++  }
++
++  /* Success - hand the TCP control connection to the caller.
++   * It MUST stay open for the UDP relay to keep working. */
++  *control_fd = sockfd;
++  return CURLE_OK;
++
++out:
++  sclose(sockfd);
++  return result;
++}
++
++/* Build a SOCKS5 UDP header for datagram relay.
++ * Format: RSV(2) + FRAG(1) + ATYP(1) + DST.ADDR(var) + DST.PORT(2)
++ * Returns the header length or 0 on error. */
++size_t Curl_SOCKS5_build_udp_header(unsigned char *header_buf,
++                                    const char *target_host,
++                                    int target_port)
++{
++  unsigned char addr4[4];
++  size_t idx = 0;
++
++  header_buf[idx++] = 0; /* RSV */
++  header_buf[idx++] = 0; /* RSV */
++  header_buf[idx++] = 0; /* FRAG */
++
++  if(target_host && (1 == Curl_inet_pton(AF_INET, target_host, addr4))) {
++    header_buf[idx++] = 1; /* ATYP: IPv4 */
++    memcpy(&header_buf[idx], addr4, 4);
++    idx += 4;
++  }
++  else if(target_host) {
++    size_t hostlen = strlen(target_host);
++    if(hostlen > 255)
++      hostlen = 255;
++    header_buf[idx++] = 3; /* ATYP: DOMAINNAME */
++    header_buf[idx++] = (unsigned char)hostlen;
++    memcpy(&header_buf[idx], target_host, hostlen);
++    idx += hostlen;
++  }
++  else {
++    return 0;
++  }
++
++  header_buf[idx++] = (unsigned char)((target_port >> 8) & 0xff);
++  header_buf[idx++] = (unsigned char)(target_port & 0xff);
++
++  return idx; /* total header length */
++}
++
+ static CURLcode connect_SOCKS(struct Curl_cfilter *cf,
+                               struct socks_state *sxstate,
+                               struct Curl_easy *data)
+diff --git a/lib/socks.h b/lib/socks.h
+index a3adcc6e91..42bb8c9004 100644
+--- a/lib/socks.h
++++ b/lib/socks.h
+@@ -54,6 +54,25 @@ CURLcode Curl_SOCKS5_gssapi_negotiate(struct Curl_cfilter *cf,
+ CURLcode Curl_cf_socks_proxy_insert_after(struct Curl_cfilter *cf_at,
+                                           struct Curl_easy *data);
+ 
++CURLcode Curl_SOCKS5_udp_associate(struct Curl_easy *data,
++                                   const char *proxy_host, int proxy_port,
++                                   const char *proxy_user,
++                                   const char *proxy_passwd,
++                                   const char *target_host, int target_port,
++                                   char *relay_ip, size_t relay_ip_len,
++                                   unsigned short *relay_port,
++                                   curl_socket_t *control_fd);
++
++/* Build SOCKS5 UDP header for datagram relay.
++   header_buf must be at least 263 bytes. Returns header length. */
++size_t Curl_SOCKS5_build_udp_header(unsigned char *header_buf,
++                                    const char *target_host,
++                                    int target_port);
++
++/* SOCKS5 UDP header: RSV(2) + FRAG(1) + ATYP(1) + DST.ADDR(variable) +
++ * DST.PORT(2) = minimum 10 bytes */
++#define SOCKS5_UDP_HEADER_MIN_SIZE 10
++
+ extern struct Curl_cftype Curl_cft_socks_proxy;
+ 
+ #endif /* CURL_DISABLE_PROXY */
 diff --git a/lib/url.c b/lib/url.c
 index 61dad442dd..166cc6f8aa 100644
 --- a/lib/url.c
@@ -1544,7 +1212,7 @@ index 61dad442dd..166cc6f8aa 100644
      data->set.str[STRING_SSL_PINNEDPUBLICKEY];
    data->set.ssl.primary.cert_blob = data->set.blobs[BLOB_CERT];
 diff --git a/lib/urldata.h b/lib/urldata.h
-index dff26e6b4b..50db016a0b 100644
+index dff26e6b4b..7992c7cf64 100644
 --- a/lib/urldata.h
 +++ b/lib/urldata.h
 @@ -273,6 +273,7 @@ struct ssl_primary_config {
@@ -1555,7 +1223,7 @@ index dff26e6b4b..50db016a0b 100644
    char *pinned_key;
    char *CRLfile;         /* CRL to check certificate revocation */
    struct curl_blob *cert_blob;
-@@ -1600,15 +1601,21 @@ enum dupstring {
+@@ -1600,15 +1601,29 @@ enum dupstring {
    STRING_SSL_EC_CURVES,
    STRING_AWS_SIGV4, /* Parameters for V4 signature */
    STRING_HAPROXY_CLIENT_IP,     /* CURLOPT_HAPROXY_CLIENT_IP */
@@ -1569,6 +1237,14 @@ index dff26e6b4b..50db016a0b 100644
 +     Comma-separated list as used by CURLOPT_TLS_VERIFY_SIGALGS. */
 +  STRING_SSL_VERIFY_SIGALGS,
 +
++  /* HTTP/3 fingerprint profiles (see CURLOPT_HTTP3_FP_*) */
++  STRING_HTTP3_FP_QUIC,
++  STRING_HTTP3_FP_SETTINGS,
++  STRING_HTTP3_FP_TRANSPORT_PARAMS,
++  STRING_HTTP3_FP_TLS,
++  STRING_TLS_EXTENSION_PERMUTATION_HTTP3, /* HTTP/3-only extension order */
++  STRING_SSL_VERIFY_SIGALGS_HTTP3, /* HTTP/3-only sigalgs */
++
    STRING_LASTZEROTERMINATED,
  
    /* -- below this are pointers to binary data that cannot be strdup'ed. --- */
@@ -1579,7 +1255,7 @@ index dff26e6b4b..50db016a0b 100644
    STRING_LAST /* not used, just an end-of-list marker */
  };
  
-@@ -1920,6 +1927,8 @@ struct UserDefined {
+@@ -1920,6 +1935,8 @@ struct UserDefined {
  #ifdef USE_WEBSOCKETS
    BIT(ws_raw_mode);
  #endif
@@ -1588,6 +1264,1380 @@ index dff26e6b4b..50db016a0b 100644
  };
  
  struct Names {
+diff --git a/lib/vquic/curl_ngtcp2.c b/lib/vquic/curl_ngtcp2.c
+index 7d681e5853..b2d915fe76 100644
+--- a/lib/vquic/curl_ngtcp2.c
++++ b/lib/vquic/curl_ngtcp2.c
+@@ -63,6 +63,8 @@
+ #include "vquic_int.h"
+ #include "vtls/keylog.h"
+ #include "vtls/vtls.h"
++#include "socks.h"
++#include "hostip.h"
+ #include "curl_ngtcp2.h"
+ 
+ #include "warnless.h"
+@@ -73,7 +75,6 @@
+ #include "memdebug.h"
+ 
+ 
+-#define H3_ALPN_H3_29 "\x5h3-29"
+ #define H3_ALPN_H3 "\x2h3"
+ 
+ #define QUIC_MAX_STREAMS (256*1024)
+@@ -81,6 +82,10 @@
+ #define QUIC_IDLE_TIMEOUT (60*NGTCP2_SECONDS)
+ #define QUIC_HANDSHAKE_TIMEOUT (10*NGTCP2_SECONDS)
+ 
++/* Fingerprint profile limits (CURLOPT_HTTP3_FP_*) */
++#define NGHTTP3_FP_MAX_SETTINGS 16
++#define NGTCP2_FP_MAX_TP 32
++
+ /* A stream window is the maximum amount we need to buffer for
+  * each active transfer. We use HTTP/3 flow control and only ACK
+  * when we take things out of the buffer.
+@@ -166,6 +171,21 @@ struct cf_ngtcp2_ctx {
+ #ifdef USE_OPENSSL
+   BIT(x509_store_setup);             /* if x509 store has been set up */
+ #endif
++  /* SOCKS5 UDP relay support */
++  char socks5_relay_ip[MAX_IPADR_LEN];
++  unsigned short socks5_relay_port;
++  curl_socket_t socks5_control_fd;   /* TCP control connection to proxy */
++  BIT(socks5_udp_relay);             /* TRUE if using SOCKS5 UDP relay */
++  /* HTTP/3 fingerprint profile (CURLOPT_HTTP3_FP_*) */
++  size_t fp_scid_len;                /* client source CID length, 0..20 */
++  nghttp3_settings_entry fp_h3_settings[NGHTTP3_FP_MAX_SETTINGS];
++  size_t fp_h3_settings_len;
++  ngtcp2_tp_entry fp_tp[NGTCP2_FP_MAX_TP];
++  uint8_t fp_tp_blob[NGTCP2_FP_MAX_TP * 16]; /* backing data for fp_tp */
++  size_t fp_tp_blob_len;
++  size_t fp_tp_len;
++  BIT(fp_rand);                      /* Chrome-style per-connection
++                                        randomization (fp-tls rand=on) */
+ };
+ 
+ /* How to access `call_data` from a cf_ngtcp2 filter */
+@@ -327,9 +347,484 @@ static void qlog_callback(void *user_data, uint32_t flags,
+ 
+ }
+ 
+-static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+-                          struct Curl_easy *data,
+-                          struct pkt_io_ctx *pktx)
++/* Parse one 64-bit unsigned value: decimal or 0x-prefixed hex.
++ * Returns TRUE on success. */
++static bool quic_fp_parse_u64(const char *str, uint64_t *pval)
++{
++  char *endptr = NULL;
++
++  if(!str || !*str)
++    return FALSE;
++  errno = 0;
++  *pval = strtoull(str, &endptr, 0);
++  if(errno || endptr == str || *endptr)
++    return FALSE;
++  return TRUE;
++}
++
++/* Fill |buf| (len bytes) with random data. */
++static CURLcode quic_fp_rand(struct Curl_easy *data, uint8_t *buf, size_t len)
++{
++  return Curl_rand(data, buf, len);
++}
++
++/* Fill |pval| with a random GREASE-style value. */
++static void quic_fp_grease_u64(struct Curl_easy *data, uint64_t *pval)
++{
++  uint8_t buf[8];
++
++  if(Curl_rand(data, buf, sizeof(buf)) != CURLE_OK)
++    memset(buf, 0, sizeof(buf));
++  buf[0] = (uint8_t)(0x10 | (buf[0] & 0x0f));
++  *pval = 0;
++  {
++    size_t i;
++    for(i = 0; i < sizeof(buf); ++i)
++      *pval = (*pval << 8) | buf[i];
++  }
++}
++
++/* Fisher-Yates shuffle of |idx[0..n-1]| using curl's RNG. */
++static void quic_fp_shuffle(struct Curl_easy *data, size_t *idx, size_t n)
++{
++  size_t i;
++
++  for(i = n - 1; i > 0; --i) {
++    uint8_t rbuf[2];
++    size_t j;
++
++    if(Curl_rand(data, rbuf, sizeof(rbuf)) != CURLE_OK)
++      rbuf[0] = rbuf[1] = 0;
++    j = (size_t)(rbuf[0] | ((size_t)rbuf[1] << 8)) % (i + 1);
++    {
++      size_t t = idx[i];
++      idx[i] = idx[j];
++      idx[j] = t;
++    }
++  }
++}
++
++/* Fill |pval| with a GREASE SETTINGS ID that fingerprinting services
++ * recognize as GREASE.  The two known-good IDs are the ones observed in
++ * the Chrome 151 samples (0x19b4c8cd6 and 0x17c1d7fd48); Chrome picks
++ * one per connection, so we rotate randomly. */
++static void quic_fp_grease_settings_id(struct Curl_easy *data, uint64_t *pval)
++{
++  static const uint64_t known_grease_ids[2] = {
++      UINT64_C(0x19b4c8cd6), UINT64_C(0x17c1d7fd48)};
++  uint8_t r;
++
++  if(Curl_rand(data, &r, 1) != CURLE_OK)
++    r = 0;
++  *pval = known_grease_ids[r & 1];
++}
++
++/* Parse CURLOPT_HTTP3_FP_QUIC: "scid=<len>" sets the client source
++ * connection ID length (0-20). */
++static CURLcode quic_fp_parse_quic(struct cf_ngtcp2_ctx *ctx,
++                                   struct Curl_easy *data)
++{
++  const char *opt = data->set.str[STRING_HTTP3_FP_QUIC];
++  uint64_t len;
++
++  ctx->fp_scid_len = NGTCP2_MAX_CIDLEN;
++  if(!opt || !*opt)
++    return CURLE_OK;
++
++  if(strncmp(opt, "scid=", 5) || !quic_fp_parse_u64(opt + 5, &len) ||
++     len > NGTCP2_MAX_CIDLEN) {
++    failf(data, "invalid CURLOPT_HTTP3_FP_QUIC: '%s' "
++          "(expected \"scid=<0..%d>\")", opt, NGTCP2_MAX_CIDLEN);
++    return CURLE_BAD_FUNCTION_ARGUMENT;
++  }
++  ctx->fp_scid_len = (size_t)len;
++  infof(data, "HTTP/3 fp: source connection ID length %zu", ctx->fp_scid_len);
++  return CURLE_OK;
++}
++
++/* Parse CURLOPT_HTTP3_FP_SETTINGS: "id:value;id:value;..." in wire order.
++ * The keyword GREASE inserts a random unknown setting. Standard IDs also
++ * update the nghttp3 settings fields so protocol behaviour stays
++ * consistent with the advertised values. */
++static CURLcode quic_fp_parse_settings(struct cf_ngtcp2_ctx *ctx,
++                                       struct Curl_easy *data)
++{
++  const char *opt = data->set.str[STRING_HTTP3_FP_SETTINGS];
++  const char *p, *end;
++
++  ctx->fp_h3_settings_len = 0;
++  if(!opt || !*opt)
++    return CURLE_OK;
++
++  p = opt;
++  while(*p) {
++    const char *sep;
++    uint64_t id, value;
++    nghttp3_settings_entry *ent;
++
++    if(ctx->fp_h3_settings_len >= NGHTTP3_FP_MAX_SETTINGS) {
++      failf(data, "too many CURLOPT_HTTP3_FP_SETTINGS entries");
++      return CURLE_BAD_FUNCTION_ARGUMENT;
++    }
++    sep = strchr(p, ';');
++    end = sep ? sep : p + strlen(p);
++
++    if(end - p >= 6 && !strncmp(p, "GREASE", 6)) {
++      ent = &ctx->fp_h3_settings[ctx->fp_h3_settings_len++];
++      quic_fp_grease_settings_id(data, &ent->id);
++      quic_fp_grease_u64(data, &ent->value);
++    }
++    else {
++      const char *colon = memchr(p, ':', (size_t)(end - p));
++      char idbuf[32];
++      char valbuf[32];
++
++      if(!colon || (size_t)(colon - p) >= sizeof(idbuf) ||
++         (size_t)(end - colon - 1) >= sizeof(valbuf)) {
++        failf(data, "invalid CURLOPT_HTTP3_FP_SETTINGS entry: '%.*s'",
++              (int)(end - p), p);
++        return CURLE_BAD_FUNCTION_ARGUMENT;
++      }
++      memcpy(idbuf, p, (size_t)(colon - p));
++      idbuf[colon - p] = '\0';
++      memcpy(valbuf, colon + 1, (size_t)(end - colon - 1));
++      valbuf[end - colon - 1] = '\0';
++      if(!quic_fp_parse_u64(idbuf, &id) || !quic_fp_parse_u64(valbuf, &value)) {
++        failf(data, "invalid CURLOPT_HTTP3_FP_SETTINGS entry: '%.*s'",
++              (int)(end - p), p);
++        return CURLE_BAD_FUNCTION_ARGUMENT;
++      }
++      ent = &ctx->fp_h3_settings[ctx->fp_h3_settings_len++];
++      ent->id = id;
++      ent->value = value;
++    }
++
++    if(!sep)
++      break;
++    p = sep + 1;
++  }
++  infof(data, "HTTP/3 fp: %zu SETTINGS entries configured",
++        ctx->fp_h3_settings_len);
++  return CURLE_OK;
++}
++
++/* Parse one CURLOPT_HTTP3_FP_TRANSPORT_PARAMS value into the next entry.
++ * Returns TRUE on success. */
++static bool quic_fp_parse_tp_value(struct cf_ngtcp2_ctx *ctx,
++                                   struct Curl_easy *data,
++                                   uint64_t id,
++                                   const char *val, size_t vallen,
++                                   ngtcp2_tp_entry *ent)
++{
++  if(vallen == 6 && !strncmp(val, "GREASE", 6)) {
++    ent->type = NGTCP2_TP_ENTRY_TYPE_GREASE;
++    return TRUE;
++  }
++  if(vallen == 4 && !strncmp(val, "AUTO", 4)) {
++    ent->type = NGTCP2_TP_ENTRY_TYPE_CID;
++    return TRUE;
++  }
++  if(id == 0x4752 /* google_version */) {
++    /* Chrome sends its initial QUIC version label here, a 32-bit
++       big-endian value (e.g. 1 for QUIC v1), not a varint. Impersonation
++       checkers parse the 4-byte label, so encode it verbatim. */
++    char buf[32];
++    uint64_t value;
++
++    if(vallen >= sizeof(buf)) {
++      failf(data, "invalid google_version value '%.*s'",
++            (int)vallen, val);
++      return FALSE;
++    }
++    memcpy(buf, val, vallen);
++    buf[vallen] = '\0';
++    if(!quic_fp_parse_u64(buf, &value) || value > 0xffffffffULL) {
++      failf(data, "invalid google_version value '%.*s'",
++            (int)vallen, val);
++      return FALSE;
++    }
++    if(ctx->fp_tp_blob_len + 4 > sizeof(ctx->fp_tp_blob)) {
++      failf(data, "CURLOPT_HTTP3_FP_TRANSPORT_PARAMS too long");
++      return FALSE;
++    }
++    ent->type = NGTCP2_TP_ENTRY_TYPE_RAW;
++    ent->value = value;
++    ent->data = ctx->fp_tp_blob + ctx->fp_tp_blob_len;
++    ent->datalen = 4;
++    ctx->fp_tp_blob[ctx->fp_tp_blob_len + 0] = (uint8_t)(value >> 24);
++    ctx->fp_tp_blob[ctx->fp_tp_blob_len + 1] = (uint8_t)(value >> 16);
++    ctx->fp_tp_blob[ctx->fp_tp_blob_len + 2] = (uint8_t)(value >> 8);
++    ctx->fp_tp_blob[ctx->fp_tp_blob_len + 3] = (uint8_t)value;
++    ctx->fp_tp_blob_len += 4;
++    return TRUE;
++  }
++  if(memchr(val, '@', vallen)) {
++    /* version_information: chosen@v1,v2,... */
++    const char *at = memchr(val, '@', vallen);
++    const char *lp = at + 1;
++    char buf[32];
++    uint64_t chosen;
++
++    if((size_t)(at - val) >= sizeof(buf)) {
++      failf(data, "invalid version_information value '%.*s'",
++            (int)vallen, val);
++      return FALSE;
++    }
++    memcpy(buf, val, (size_t)(at - val));
++    buf[at - val] = '\0';
++    if(!quic_fp_parse_u64(buf, &chosen)) {
++      failf(data, "invalid version_information value '%.*s'",
++            (int)vallen, val);
++      return FALSE;
++    }
++    ent->type = NGTCP2_TP_ENTRY_TYPE_VERSION_INFO;
++    ent->value = chosen;
++    ent->data = ctx->fp_tp_blob + ctx->fp_tp_blob_len;
++    ent->datalen = 0;
++    while(lp < val + vallen) {
++      const char *comma = memchr(lp, ',', (size_t)(val + vallen - lp));
++      const char *vend = comma ? comma : val + vallen;
++      uint64_t v;
++
++      if((size_t)(vend - lp) >= sizeof(buf)) {
++        failf(data, "invalid version_information value '%.*s'",
++              (int)vallen, val);
++        return FALSE;
++      }
++      memcpy(buf, lp, (size_t)(vend - lp));
++      buf[vend - lp] = '\0';
++      if(strcmp(buf, "GREASE")) {
++        uint8_t vbuf[4];
++        if(!quic_fp_parse_u64(buf, &v)) {
++          failf(data, "invalid version_information value '%.*s'",
++                (int)vallen, val);
++          return FALSE;
++        }
++        if(ctx->fp_tp_blob_len + 4 > sizeof(ctx->fp_tp_blob)) {
++          failf(data, "CURLOPT_HTTP3_FP_TRANSPORT_PARAMS too long");
++          return FALSE;
++        }
++        vbuf[0] = (uint8_t)(v >> 24);
++        vbuf[1] = (uint8_t)(v >> 16);
++        vbuf[2] = (uint8_t)(v >> 8);
++        vbuf[3] = (uint8_t)v;
++        memcpy(ctx->fp_tp_blob + ctx->fp_tp_blob_len, vbuf, 4);
++        ctx->fp_tp_blob_len += 4;
++        ent->datalen += 4;
++      }
++      else {
++        /* GREASE version: 0x?a?a?a?a pattern */
++        uint8_t gbuf[4];
++        if(Curl_rand(data, gbuf, 4) != CURLE_OK)
++          memset(gbuf, 0, 4);
++        gbuf[0] = (uint8_t)(0x0a | (gbuf[0] & 0xf0));
++        gbuf[1] = (uint8_t)(0x1a | (gbuf[1] & 0xf0));
++        gbuf[2] = (uint8_t)(0x2a | (gbuf[2] & 0xf0));
++        gbuf[3] = (uint8_t)(0x3a | (gbuf[3] & 0xf0));
++        if(ctx->fp_tp_blob_len + 4 > sizeof(ctx->fp_tp_blob)) {
++          failf(data, "CURLOPT_HTTP3_FP_TRANSPORT_PARAMS too long");
++          return FALSE;
++        }
++        memcpy(ctx->fp_tp_blob + ctx->fp_tp_blob_len, gbuf, 4);
++        ctx->fp_tp_blob_len += 4;
++        ent->datalen += 4;
++      }
++      if(!comma)
++        break;
++      lp = comma + 1;
++    }
++    /* Chrome randomizes whether the GREASE version comes first or last
++       in the available versions list */
++    if(ctx->fp_rand && ent->datalen >= 8) {
++      uint8_t r;
++
++      if(Curl_rand(data, &r, 1) != CURLE_OK)
++        r = 0;
++      if(r & 1) {
++        uint8_t tmp[4];
++        memcpy(tmp, ent->data, 4);
++        memcpy((uint8_t *)ent->data, ent->data + ent->datalen - 4, 4);
++        memcpy((uint8_t *)ent->data + 4, tmp, 4);
++      }
++    }
++    return TRUE;
++  }
++  if(vallen > 2 && val[0] == '0' && (val[1] == 'x' || val[1] == 'X')) {
++    /* 0x-prefixed value: the hex string IS the value bytes (Chrome sends
++       google_connection_options as raw bytes, not a varint) */
++    size_t nbytes = (vallen - 2) / 2;
++    size_t i;
++
++    if((vallen - 2) % 2 || !nbytes ||
++       ctx->fp_tp_blob_len + nbytes > sizeof(ctx->fp_tp_blob)) {
++      failf(data, "invalid transport parameter value '%.*s'",
++            (int)vallen, val);
++      return FALSE;
++    }
++    ent->type = NGTCP2_TP_ENTRY_TYPE_RAW;
++    ent->data = ctx->fp_tp_blob + ctx->fp_tp_blob_len;
++    ent->datalen = nbytes;
++    for(i = 0; i < nbytes; ++i) {
++      char hex[3] = {val[2 + i * 2], val[2 + i * 2 + 1], '\0'};
++      char *endptr = NULL;
++      unsigned long b = strtoul(hex, &endptr, 16);
++      if(endptr != hex + 2) {
++        failf(data, "invalid transport parameter value '%.*s'",
++              (int)vallen, val);
++        return FALSE;
++      }
++      ctx->fp_tp_blob[ctx->fp_tp_blob_len + i] = (uint8_t)b;
++    }
++    ctx->fp_tp_blob_len += nbytes;
++    return TRUE;
++  }
++  {
++    char buf[32];
++    uint64_t value;
++
++    /* |val| is not null-terminated: copy before parsing */
++    if(vallen >= sizeof(buf)) {
++      failf(data, "invalid transport parameter value '%.*s'",
++            (int)vallen, val);
++      return FALSE;
++    }
++    memcpy(buf, val, vallen);
++    buf[vallen] = '\0';
++    if(!quic_fp_parse_u64(buf, &value)) {
++      failf(data, "invalid transport parameter value '%.*s'",
++            (int)vallen, val);
++      return FALSE;
++    }
++    ent->type = NGTCP2_TP_ENTRY_TYPE_VARINT;
++    ent->value = value;
++    return TRUE;
++  }
++}
++
++/* Parse CURLOPT_HTTP3_FP_TRANSPORT_PARAMS: "id:value;id:value;..." in wire
++ * order, and mirror the standard values into the ngtcp2 transport params so
++ * flow control etc. matches what is advertised. */
++static CURLcode quic_fp_parse_tp(struct cf_ngtcp2_ctx *ctx,
++                                 struct Curl_easy *data,
++                                 ngtcp2_transport_params *t)
++{
++  const char *opt = data->set.str[STRING_HTTP3_FP_TRANSPORT_PARAMS];
++  const char *p;
++
++  ctx->fp_tp_len = 0;
++  ctx->fp_tp_blob_len = 0;
++  if(!opt || !*opt)
++    return CURLE_OK;
++
++  p = opt;
++  while(*p) {
++    const char *sep = strchr(p, ';');
++    const char *end = sep ? sep : p + strlen(p);
++    const char *colon = memchr(p, ':', (size_t)(end - p));
++    ngtcp2_tp_entry *ent;
++    uint64_t id;
++
++    if(ctx->fp_tp_len >= NGTCP2_FP_MAX_TP) {
++      failf(data, "too many CURLOPT_HTTP3_FP_TRANSPORT_PARAMS entries");
++      return CURLE_BAD_FUNCTION_ARGUMENT;
++    }
++    ent = &ctx->fp_tp[ctx->fp_tp_len];
++    ent->id = 0;
++    ent->value = 0;
++    ent->data = NULL;
++    ent->datalen = 0;
++    if(!colon && end - p == 6 && !strncmp(p, "GREASE", 6)) {
++      /* bare GREASE transport parameter */
++      ent->type = NGTCP2_TP_ENTRY_TYPE_GREASE;
++      ctx->fp_tp_len++;
++      if(!sep)
++        break;
++      p = sep + 1;
++      continue;
++    }
++    if(colon && (size_t)(colon - p) < 32) {
++      char idbuf[32];
++      memcpy(idbuf, p, (size_t)(colon - p));
++      idbuf[colon - p] = '\0';
++      if(quic_fp_parse_u64(idbuf, &id)) {
++        ent->id = id;
++        if(!quic_fp_parse_tp_value(ctx, data, id, colon + 1,
++                                   (size_t)(end - colon - 1), ent))
++          return CURLE_BAD_FUNCTION_ARGUMENT;
++        ctx->fp_tp_len++;
++
++        /* mirror standard values so internal flow control stays sane */
++        switch(id) {
++        case 0x1: /* max_idle_timeout (ms) -> ngtcp2 duration (ns) */
++          if(ent->type == NGTCP2_TP_ENTRY_TYPE_VARINT)
++            t->max_idle_timeout = ent->value * NGTCP2_SECONDS / 1000;
++          break;
++        case 0x3:
++          if(ent->type == NGTCP2_TP_ENTRY_TYPE_VARINT)
++            t->max_udp_payload_size = ent->value;
++          break;
++        case 0x4:
++          if(ent->type == NGTCP2_TP_ENTRY_TYPE_VARINT)
++            t->initial_max_data = ent->value;
++          break;
++        case 0x5:
++          if(ent->type == NGTCP2_TP_ENTRY_TYPE_VARINT)
++            t->initial_max_stream_data_bidi_local = ent->value;
++          break;
++        case 0x6:
++          if(ent->type == NGTCP2_TP_ENTRY_TYPE_VARINT)
++            t->initial_max_stream_data_bidi_remote = ent->value;
++          break;
++        case 0x7:
++          if(ent->type == NGTCP2_TP_ENTRY_TYPE_VARINT)
++            t->initial_max_stream_data_uni = ent->value;
++          break;
++        case 0x8:
++          if(ent->type == NGTCP2_TP_ENTRY_TYPE_VARINT)
++            t->initial_max_streams_bidi = ent->value;
++          break;
++        case 0x9:
++          if(ent->type == NGTCP2_TP_ENTRY_TYPE_VARINT)
++            t->initial_max_streams_uni = ent->value;
++          break;
++        case 0x20: /* max_datagram_frame_size */
++          if(ent->type == NGTCP2_TP_ENTRY_TYPE_VARINT)
++            t->max_datagram_frame_size = ent->value;
++          break;
++        default:
++          break;
++        }
++        if(!sep)
++          break;
++        p = sep + 1;
++        continue;
++      }
++    }
++    failf(data, "invalid CURLOPT_HTTP3_FP_TRANSPORT_PARAMS entry: '%.*s'",
++          (int)(end - p), p);
++    return CURLE_BAD_FUNCTION_ARGUMENT;
++  }
++  if(ctx->fp_rand && ctx->fp_tp_len > 1) {
++    /* Chrome randomizes the transport parameter order per connection */
++    size_t idx[NGTCP2_FP_MAX_TP];
++    ngtcp2_tp_entry shuffled[NGTCP2_FP_MAX_TP];
++    size_t i;
++
++    for(i = 0; i < ctx->fp_tp_len; ++i)
++      idx[i] = i;
++    quic_fp_shuffle(data, idx, ctx->fp_tp_len);
++    for(i = 0; i < ctx->fp_tp_len; ++i)
++      shuffled[i] = ctx->fp_tp[idx[i]];
++    memcpy(ctx->fp_tp, shuffled, sizeof(ngtcp2_tp_entry) * ctx->fp_tp_len);
++  }
++  infof(data, "HTTP/3 fp: %zu transport parameters configured",
++        ctx->fp_tp_len);
++  return CURLE_OK;
++}
++
++static CURLcode quic_settings(struct cf_ngtcp2_ctx *ctx,
++                              struct Curl_easy *data,
++                              struct pkt_io_ctx *pktx)
+ {
+   ngtcp2_settings *s = &ctx->settings;
+   ngtcp2_transport_params *t = &ctx->transport_params;
+@@ -342,7 +837,6 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+   s->log_printf = NULL;
+ #endif
+ 
+-  (void)data;
+   s->initial_ts = pktx->ts;
+   s->handshake_timeout = QUIC_HANDSHAKE_TIMEOUT;
+   s->max_window = 100 * ctx->max_stream_window;
+@@ -358,6 +852,9 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+   if(ctx->qlogfd != -1) {
+     s->qlog_write = qlog_callback;
+   }
++  if(quic_fp_parse_tp(ctx, data, t))
++    return CURLE_BAD_FUNCTION_ARGUMENT;
++  return CURLE_OK;
+ }
+ 
+ #ifdef USE_OPENSSL
+@@ -448,6 +945,20 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+     SSL_CTX_set_keylog_callback(ssl_ctx, keylog_callback);
+   }
+ 
++#ifdef OPENSSL_IS_BORINGSSL
++  /* Offer brotli certificate compression (Chrome does; this is needed for
++     the compress_certificate ClientHello extension). The decompression
++     callback lives in vtls/openssl.c. */
++  {
++    extern int DecompressBrotliCert(SSL *ssl, CRYPTO_BUFFER **out,
++                                    size_t uncompressed_len,
++                                    const uint8_t *in, size_t in_len);
++    SSL_CTX_add_cert_compression_alg(ssl_ctx, TLSEXT_cert_compression_brotli,
++                                     NULL /* compression not supported */,
++                                     DecompressBrotliCert);
++  }
++#endif
++
+   /* OpenSSL always tries to verify the peer, this only says whether it should
+    * fail to connect if the verification fails, or if it should continue
+    * anyway. In the latter case the result of the verification is checked with
+@@ -455,6 +966,196 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+   SSL_CTX_set_verify(ssl_ctx, conn->ssl_config.verifypeer ?
+                      SSL_VERIFY_PEER : SSL_VERIFY_NONE, NULL);
+ 
++#ifdef OPENSSL_IS_BORINGSSL
++  /* HTTP/3 fingerprint profile: TLS layer (CURLOPT_HTTP3_FP_TLS,
++     CURLOPT_TLS_EXTENSION_PERMUTATION, CURLOPT_TLS_VERIFY_SIGALGS) */
++  {
++    const char *fp_tls = data->set.str[STRING_HTTP3_FP_TLS];
++
++    /* the rand= flag must be known before the permutation block below */
++    if(fp_tls && *fp_tls) {
++      const char *qr = fp_tls;
++      while(qr && *qr) {
++        const char *semi = strchr(qr, ';');
++        const char *end = semi ? semi : qr + strlen(qr);
++        if(end - qr > 5 && !strncmp(qr, "rand=", 5)) {
++          if((size_t)(end - qr - 5) == 2 && !strncmp(qr + 5, "on", 2))
++            ctx->fp_rand = TRUE;
++          else if((size_t)(end - qr - 5) == 3 && !strncmp(qr + 5, "off", 3))
++            ctx->fp_rand = FALSE;
++        }
++        qr = semi ? semi + 1 : NULL;
++      }
++    }
++
++    if(data->set.str[STRING_TLS_EXTENSION_PERMUTATION_HTTP3] ||
++       conn->ssl_config.extension_permutation || ctx->fp_rand) {
++      /* Chrome randomizes the ClientHello extension order per
++         connection: shuffle the configured (or default) list. The
++         HTTP/3-specific option overrides the shared one. */
++      size_t idx[NGTCP2_FP_MAX_TP];
++      size_t n = 0;
++      const char *perm = data->set.str[STRING_TLS_EXTENSION_PERMUTATION_HTTP3] ?
++                        data->set.str[STRING_TLS_EXTENSION_PERMUTATION_HTTP3] :
++                        conn->ssl_config.extension_permutation;
++      const char *q = perm;
++      char permbuf[256];
++      size_t o = 0;
++      size_t i;
++
++      if(!perm) {
++        /* default Chrome 151 extension set */
++        static const size_t defperm[] = {
++            0, 15, 19, 23, 9, 1, 14, 21, 17, 4, 7};
++        for(i = 0; i < sizeof(defperm) / sizeof(defperm[0]); ++i)
++          idx[n++] = defperm[i];
++      }
++      else {
++        while(*q) {
++          char *endptr = NULL;
++          unsigned long v;
++          while(*q == ',' || *q == ' ' || *q == '\t')
++            ++q;
++          if(!*q)
++            break;
++          v = strtoul(q, &endptr, 10);
++          if(endptr == q || v > 30 || n >= NGHTTP3_FP_MAX_SETTINGS) {
++            failf(data, "invalid extension permutation '%s'", perm);
++            result = CURLE_BAD_FUNCTION_ARGUMENT;
++            goto out;
++          }
++          idx[n++] = (size_t)v;
++          q = endptr;
++        }
++      }
++      if(ctx->fp_rand && n > 1)
++        quic_fp_shuffle(data, idx, n);
++      for(i = 0; i < n; ++i) {
++        if(o + 8 >= sizeof(permbuf)) {
++          result = CURLE_BAD_FUNCTION_ARGUMENT;
++          goto out;
++        }
++        o += msnprintf(permbuf + o, sizeof(permbuf) - o, "%s%zu",
++                       i ? "," : "", idx[i]);
++      }
++      if(!SSL_CTX_set_extension_permutation(ssl_ctx, permbuf)) {
++        failf(data, "failed setting extension permutation '%s'", permbuf);
++        result = CURLE_SSL_CIPHER;
++        goto out;
++      }
++    }
++    {
++      const char *sigalgs = data->set.str[STRING_SSL_VERIFY_SIGALGS_HTTP3] ?
++                        data->set.str[STRING_SSL_VERIFY_SIGALGS_HTTP3] :
++                        data->set.str[STRING_SSL_VERIFY_SIGALGS];
++      if(sigalgs && *sigalgs) {
++        char *tmp = NULL;
++        char *tok;
++        unsigned short *prefs = NULL;
++        size_t cnt = 0;
++
++        tmp = strdup(sigalgs);
++        if(!tmp) {
++          result = CURLE_OUT_OF_MEMORY;
++          goto out;
++        }
++        for(tok = strtok(tmp, ","); tok; tok = strtok(NULL, ","))
++          ++cnt;
++        free(tmp);
++        if(cnt) {
++          size_t i = 0;
++          char *p2 = NULL;
++          prefs = malloc(sizeof(*prefs) * cnt);
++          if(!prefs) {
++            result = CURLE_OUT_OF_MEMORY;
++            goto out;
++          }
++          tmp = strdup(sigalgs);
++          if(!tmp) {
++            free(prefs);
++            result = CURLE_OUT_OF_MEMORY;
++            goto out;
++          }
++          for(p2 = strtok(tmp, ","); p2; p2 = strtok(NULL, ",")) {
++            char *endptr = NULL;
++            unsigned long v = strtoul(p2, &endptr, 0);
++            prefs[i++] = (unsigned short)v;
++          }
++          SSL_CTX_set_verify_algorithm_prefs(ssl_ctx, prefs, i);
++          free(prefs);
++          free(tmp);
++        }
++      }
++    }
++    if(fp_tls && *fp_tls) {
++      /* format: ciphers=<flags>;alps=<proto>;grease=off|on */
++      const char *q = fp_tls;
++      while(q && *q) {
++        const char *semi = strchr(q, ';');
++        const char *end = semi ? semi : q + strlen(q);
++        if(end - q > 8 && !strncmp(q, "ciphers=", 8)) {
++          char buf[64];
++          size_t len = (size_t)(end - q - 8);
++          size_t i, o = 0;
++          if(len >= sizeof(buf)) {
++            result = CURLE_BAD_FUNCTION_ARGUMENT;
++            goto out;
++          }
++          for(i = 0; i < len; ++i) {
++            if(q[8 + i] != ',')
++              buf[o++] = q[8 + i];
++          }
++          buf[o] = '\0';
++          if(!SSL_CTX_set_ciphersuites_quic(ssl_ctx, buf)) {
++            failf(data, "failed setting QUIC TLS 1.3 ciphers: %s", buf);
++            result = CURLE_SSL_CIPHER;
++            goto out;
++          }
++        }
++        else if(end - q > 5 && !strncmp(q, "alps=", 5)) {
++          if(!SSL_CTX_set_fp_alps(ssl_ctx,
++                                  (const uint8_t *)q + 5,
++                                  (size_t)(end - q - 5),
++                                  NULL, 0)) {
++            failf(data, "failed setting QUIC ALPS protocol");
++            result = CURLE_SSL_CIPHER;
++            goto out;
++          }
++        }
++        else if(end - q > 7 && !strncmp(q, "grease=", 7)) {
++          if((size_t)(end - q - 7) == 3 && !strncmp(q + 7, "off", 3))
++            SSL_CTX_set_fp_grease(ssl_ctx, 0);
++          else if((size_t)(end - q - 7) == 2 && !strncmp(q + 7, "on", 2))
++            SSL_CTX_set_fp_grease(ssl_ctx, 1);
++          else {
++            failf(data, "invalid grease flag in CURLOPT_HTTP3_FP_TLS");
++            result = CURLE_BAD_FUNCTION_ARGUMENT;
++            goto out;
++          }
++        }
++        else if(end - q > 5 && !strncmp(q, "rand=", 5)) {
++          if((size_t)(end - q - 5) == 2 && !strncmp(q + 5, "on", 2))
++            ctx->fp_rand = TRUE;
++          else if((size_t)(end - q - 5) == 3 && !strncmp(q + 5, "off", 3))
++            ctx->fp_rand = FALSE;
++          else {
++            failf(data, "invalid rand flag in CURLOPT_HTTP3_FP_TLS");
++            result = CURLE_BAD_FUNCTION_ARGUMENT;
++            goto out;
++          }
++        }
++        else {
++          failf(data, "invalid CURLOPT_HTTP3_FP_TLS token: '%.*s'",
++                (int)(end - q), q);
++          result = CURLE_BAD_FUNCTION_ARGUMENT;
++          goto out;
++        }
++        q = semi ? semi + 1 : NULL;
++      }
++    }
++  }
++#endif
++
+   /* give application a chance to interfere with SSL set up. */
+   if(data->set.ssl.fsslctx) {
+     /* When a user callback is installed to modify the SSL_CTX,
+@@ -523,8 +1224,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+   SSL_set_connect_state(ctx->ssl);
+   SSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
+ 
+-  alpn = (const uint8_t *)H3_ALPN_H3_29 H3_ALPN_H3;
+-  alpnlen = sizeof(H3_ALPN_H3_29) - 1 + sizeof(H3_ALPN_H3) - 1;
++  alpn = (const uint8_t *)H3_ALPN_H3;
++  alpnlen = sizeof(H3_ALPN_H3) - 1;
+   if(alpn)
+     SSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
+ 
+@@ -588,13 +1289,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+   }
+ 
+   /* strip the first byte (the length) from NGHTTP3_ALPN_H3 */
+-  alpn[0].data = (unsigned char *)H3_ALPN_H3_29 + 1;
+-  alpn[0].size = sizeof(H3_ALPN_H3_29) - 2;
+-  alpn[1].data = (unsigned char *)H3_ALPN_H3 + 1;
+-  alpn[1].size = sizeof(H3_ALPN_H3) - 2;
++  alpn[0].data = (unsigned char *)H3_ALPN_H3 + 1;
++  alpn[0].size = sizeof(H3_ALPN_H3) - 2;
+ 
+   gnutls_alpn_set_protocols(ctx->gtls->session,
+-                            alpn, 2, GNUTLS_ALPN_MANDATORY);
++                            alpn, 1, GNUTLS_ALPN_MANDATORY);
+   return CURLE_OK;
+ }
+ #elif defined(USE_WOLFSSL)
+@@ -718,8 +1417,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+   wolfSSL_set_connect_state(ctx->ssl);
+   wolfSSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
+ 
+-  alpn = (const uint8_t *)H3_ALPN_H3_29 H3_ALPN_H3;
+-  alpnlen = sizeof(H3_ALPN_H3_29) - 1 + sizeof(H3_ALPN_H3) - 1;
++  alpn = (const uint8_t *)H3_ALPN_H3;
++  alpnlen = sizeof(H3_ALPN_H3) - 1;
+   if(alpn)
+     wolfSSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
+ 
+@@ -1383,6 +2082,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
+   }
+ 
+   nghttp3_settings_default(&ctx->h3settings);
++  if(ctx->fp_h3_settings_len) {
++    /* fingerprint profile: keep the protocol-facing fields consistent
++       with the configured values and send exactly those SETTINGS */
++    size_t i;
++
++    for(i = 0; i < ctx->fp_h3_settings_len; ++i) {
++      switch(ctx->fp_h3_settings[i].id) {
++      case 0x1: /* SETTINGS_QPACK_MAX_TABLE_CAPACITY */
++        ctx->h3settings.qpack_max_dtable_capacity =
++          (size_t)ctx->fp_h3_settings[i].value;
++        break;
++      case 0x6: /* SETTINGS_MAX_FIELD_SECTION_SIZE */
++        ctx->h3settings.max_field_section_size = ctx->fp_h3_settings[i].value;
++        break;
++      case 0x7: /* SETTINGS_QPACK_BLOCKED_STREAMS */
++        ctx->h3settings.qpack_blocked_streams =
++          (size_t)ctx->fp_h3_settings[i].value;
++        break;
++      case 0x33: /* SETTINGS_H3_DATAGRAM */
++        ctx->h3settings.h3_datagram = ctx->fp_h3_settings[i].value ? 1 : 0;
++        break;
++      default:
++        break;
++      }
++    }
++    ctx->h3settings.fp_iv = ctx->fp_h3_settings;
++    ctx->h3settings.fp_ivlen = ctx->fp_h3_settings_len;
++  }
+ 
+   rc = nghttp3_conn_client_new(&ctx->h3conn,
+                                &ngh3_callbacks,
+@@ -2347,6 +3074,7 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
+ 
+   memset(ctx, 0, sizeof(*ctx));
+   ctx->qlogfd = -1;
++  ctx->socks5_control_fd = CURL_SOCKET_BAD; /* memset zeroed it; restore -1 guard */
+   ctx->call_data = save;
+ }
+ 
+@@ -2372,6 +3100,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
+             SOCKERRNO == EINTR);
+     }
+ 
++    /* Close the SOCKS5 UDP ASSOCIATE control connection, which
++     * terminates the proxy's UDP relay. */
++    if(ctx->socks5_control_fd != CURL_SOCKET_BAD) {
++      sclose(ctx->socks5_control_fd);
++      ctx->socks5_control_fd = CURL_SOCKET_BAD;
++    }
++
+     cf_ngtcp2_ctx_clear(ctx);
+   }
+ 
+@@ -2387,6 +3122,10 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
+   CF_DATA_SAVE(save, cf, data);
+   CURL_TRC_CF(data, cf, "destroy");
+   if(ctx) {
++    if(ctx->socks5_control_fd != CURL_SOCKET_BAD) {
++      sclose(ctx->socks5_control_fd);
++      ctx->socks5_control_fd = CURL_SOCKET_BAD;
++    }
+     cf_ngtcp2_ctx_clear(ctx);
+     free(ctx);
+   }
+@@ -2432,19 +3171,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+   if(result)
+     return result;
+ 
++  /* fingerprint profile: parse the QUIC-level options first so the
++     source connection ID length is known before generating CIDs. The
++     SETTINGS are parsed here too (not in init_ngh3_conn, which runs
++     from an ngtcp2 callback without a reliable easy-handle). */
++  result = quic_fp_parse_quic(ctx, data);
++  if(result)
++    return result;
++  result = quic_fp_parse_settings(ctx, data);
++  if(result)
++    return result;
++
+   ctx->dcid.datalen = NGTCP2_MAX_CIDLEN;
+   result = Curl_rand(data, ctx->dcid.data, NGTCP2_MAX_CIDLEN);
+   if(result)
+     return result;
+ 
+-  ctx->scid.datalen = NGTCP2_MAX_CIDLEN;
+-  result = Curl_rand(data, ctx->scid.data, NGTCP2_MAX_CIDLEN);
++  ctx->scid.datalen = ctx->fp_scid_len;
++  if(ctx->fp_scid_len)
++    result = Curl_rand(data, ctx->scid.data, ctx->fp_scid_len);
+   if(result)
+     return result;
+ 
+-  (void)Curl_qlogdir(data, ctx->scid.data, NGTCP2_MAX_CIDLEN, &qfd);
++  (void)Curl_qlogdir(data, ctx->scid.data, ctx->fp_scid_len, &qfd);
+   ctx->qlogfd = qfd; /* -1 if failure above */
+-  quic_settings(ctx, data, pktx);
++  result = quic_settings(ctx, data, pktx);
++  if(result)
++    return result;
+ 
+   result = vquic_ctx_init(&ctx->q);
+   if(result)
+@@ -2474,6 +3227,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+   if(rc)
+     return CURLE_QUIC_CONNECT_ERROR;
+ 
++  /* fingerprint profile: replace the transport parameters with the
++     configured list, in wire order */
++  if(ctx->fp_tp_len) {
++    rc = ngtcp2_conn_set_local_transport_params_custom(
++        ctx->qconn, ctx->fp_tp, ctx->fp_tp_len);
++    if(rc) {
++      failf(data, "failed to set custom transport parameters");
++      return CURLE_QUIC_CONNECT_ERROR;
++    }
++  }
++
+ #ifdef USE_GNUTLS
+   ngtcp2_conn_set_tls_native_handle(ctx->qconn, ctx->gtls->session);
+ #else
+@@ -2570,6 +3334,13 @@ out:
+ 
+     CURL_TRC_CF(data, cf, "connect, remote closed, reconnect after %dms",
+                 reconn_delay_ms);
++    /* Close the SOCKS5 control connection; the relay is dead anyway.
++     * A reconnect would need a new UDP ASSOCIATE, which is not supported
++     * here, so fail the transfer instead. */
++    if(ctx->socks5_control_fd != CURL_SOCKET_BAD) {
++      sclose(ctx->socks5_control_fd);
++      ctx->socks5_control_fd = CURL_SOCKET_BAD;
++    }
+     Curl_conn_cf_close(cf->next, data);
+     cf_ngtcp2_ctx_clear(ctx);
+     result = Curl_conn_cf_connect(cf->next, data, FALSE, done);
+@@ -2704,6 +3475,10 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+   struct cf_ngtcp2_ctx *ctx = NULL;
+   struct Curl_cfilter *cf = NULL, *udp_cf = NULL;
+   CURLcode result;
++  const struct Curl_addrinfo *udp_ai = ai;
++  struct Curl_addrinfo relay_ai;
++  char relay_ip[MAX_IPADR_LEN];
++  unsigned short relay_port = 0;
+ 
+   (void)data;
+   ctx = calloc(sizeof(*ctx), 1);
+@@ -2713,12 +3488,107 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+   }
+   ctx->qlogfd = -1;
+   cf_ngtcp2_ctx_clear(ctx);
++  ctx->socks5_control_fd = CURL_SOCKET_BAD;
++
++#ifndef CURL_DISABLE_PROXY
++  /* If using SOCKS proxy with QUIC, do SOCKS5 UDP ASSOCIATE first */
++  if(conn->bits.socksproxy) {
++    const char *proxy_host = conn->socks_proxy.host.name;
++    int proxy_port = conn->socks_proxy.port;
++    const char *target_host = conn->host.name;
++    int target_port = conn->remote_port;
++    struct Curl_dns_entry *dns = NULL;
++    enum resolve_t rc;
++    struct Curl_addrinfo *hp;
++    struct sockaddr_storage relay_sockaddr;
++    socklen_t relay_sockaddr_len;
++
++    result = Curl_SOCKS5_udp_associate(data,
++                                       proxy_host, proxy_port,
++                                       conn->socks_proxy.user,
++                                       conn->socks_proxy.passwd,
++                                       target_host, target_port,
++                                       relay_ip, sizeof(relay_ip),
++                                       &relay_port, &ctx->socks5_control_fd);
++    if(result) {
++      failf(data, "SOCKS5 UDP ASSOCIATE failed");
++      goto out;
++    }
++
++    /* RFC 1928: a BND.ADDR of all zeroes means the relay is on the
++     * proxy's own address. */
++    if(!strcmp(relay_ip, "0.0.0.0") || !strcmp(relay_ip, "::")) {
++      strncpy(relay_ip, proxy_host, sizeof(relay_ip) - 1);
++      relay_ip[sizeof(relay_ip) - 1] = '\0';
++      infof(data, "SOCKS5 UDP ASSOCIATE: relay on proxy address, "
++            "using %s:%u", relay_ip, relay_port);
++    }
++
++    /* Resolve the relay address for the UDP filter. With the default
++     * (blocking) resolver this returns RESOLVED/ERROR; builds with a
++     * threaded resolver (e.g. macOS) may return PENDING, in which case
++     * the resolve completes in a background thread and we wait for it. */
++    rc = Curl_resolv(data, relay_ip, relay_port, TRUE, &dns);
++    if(rc == CURLRESOLV_PENDING)
++      result = Curl_resolver_wait_resolv(data, &dns);
++    if(result || rc == CURLRESOLV_ERROR || !dns || !dns->addr) {
++      if(dns)
++        Curl_resolv_unlock(data, dns);
++      result = CURLE_COULDNT_RESOLVE_PROXY;
++      goto out;
++    }
++
++    /* Build a COPY of the relay address (do not modify the DNS cache!) */
++    hp = dns->addr;
++    relay_sockaddr_len = hp->ai_addrlen;
++    if(relay_sockaddr_len > (socklen_t)sizeof(relay_sockaddr))
++      relay_sockaddr_len = (socklen_t)sizeof(relay_sockaddr);
++    memcpy(&relay_sockaddr, hp->ai_addr, relay_sockaddr_len);
++
++    /* Set relay port */
++    if(hp->ai_family == AF_INET) {
++      ((struct sockaddr_in *)(void *)&relay_sockaddr)->sin_port =
++        htons(relay_port);
++    }
++    else if(hp->ai_family == AF_INET6) {
++      ((struct sockaddr_in6 *)(void *)&relay_sockaddr)->sin6_port =
++        htons(relay_port);
++    }
++    else {
++      Curl_resolv_unlock(data, dns);
++      result = CURLE_COULDNT_RESOLVE_PROXY;
++      goto out;
++    }
++
++    memset(&relay_ai, 0, sizeof(relay_ai));
++    relay_ai.ai_family = hp->ai_family;
++    relay_ai.ai_socktype = SOCK_DGRAM;
++    relay_ai.ai_protocol = IPPROTO_UDP;
++    relay_ai.ai_addrlen = relay_sockaddr_len;
++    relay_ai.ai_addr = (struct sockaddr *)&relay_sockaddr;
++
++    udp_ai = &relay_ai;
++
++    /* Store relay info in context */
++    strncpy(ctx->socks5_relay_ip, relay_ip, sizeof(ctx->socks5_relay_ip) - 1);
++    ctx->socks5_relay_port = relay_port;
++    ctx->socks5_udp_relay = TRUE;
++
++    /* Also store target info in quic context for packet wrapping */
++    strncpy(ctx->q.socks5_target_host, target_host,
++            sizeof(ctx->q.socks5_target_host) - 1);
++    ctx->q.socks5_target_port = target_port;
++    ctx->q.socks5_udp_relay = TRUE;
++
++    Curl_resolv_unlock(data, dns);
++  }
++#endif
+ 
+   result = Curl_cf_create(&cf, &Curl_cft_http3, ctx);
+   if(result)
+     goto out;
+ 
+-  result = Curl_cf_udp_create(&udp_cf, data, conn, ai, TRNSPRT_QUIC);
++  result = Curl_cf_udp_create(&udp_cf, data, conn, udp_ai, TRNSPRT_QUIC);
+   if(result)
+     goto out;
+ 
+@@ -2732,6 +3602,12 @@ out:
+   if(result) {
+     if(udp_cf)
+       Curl_conn_cf_discard_sub(cf, udp_cf, data, TRUE);
++    /* if the UDP ASSOCIATE succeeded but a later step failed, close the
++     * control connection so the proxy does not keep the UDP relay open */
++    if(ctx && ctx->socks5_control_fd != CURL_SOCKET_BAD) {
++      sclose(ctx->socks5_control_fd);
++      ctx->socks5_control_fd = CURL_SOCKET_BAD;
++    }
+     Curl_safefree(cf);
+     Curl_safefree(ctx);
+   }
+diff --git a/lib/vquic/vquic.c b/lib/vquic/vquic.c
+index 9a1a1bbb3c..6551497ae0 100644
+--- a/lib/vquic/vquic.c
++++ b/lib/vquic/vquic.c
+@@ -51,6 +51,7 @@
+ #include "vquic.h"
+ #include "vquic_int.h"
+ #include "strerror.h"
++#include "socks.h"
+ 
+ /* The last 3 #include files should be in this order */
+ #include "curl_printf.h"
+@@ -115,6 +116,8 @@ static CURLcode send_packet_no_gso(struct Curl_cfilter *cf,
+                                    const uint8_t *pkt, size_t pktlen,
+                                    size_t gsolen, size_t *psent);
+ 
++static size_t socks5_udp_header_len(const unsigned char *buf, size_t buflen);
++
+ static CURLcode do_sendmsg(struct Curl_cfilter *cf,
+                            struct Curl_easy *data,
+                            struct cf_quic_ctx *qctx,
+@@ -122,21 +125,57 @@ static CURLcode do_sendmsg(struct Curl_cfilter *cf,
+                            size_t *psent)
+ {
+ #ifdef HAVE_SENDMSG
+-  struct iovec msg_iov;
++  struct iovec msg_iov[2];
+   struct msghdr msg = {0};
+   ssize_t sent;
++  unsigned char socks5_header[270]; /* SOCKS5 UDP header buffer */
++  size_t socks5_header_len = 0;
++  int iovcnt = 1;
+ #if defined(__linux__) && defined(UDP_SEGMENT)
+   uint8_t msg_ctrl[32];
+   struct cmsghdr *cm;
+ #endif
+ 
+   *psent = 0;
+-  msg_iov.iov_base = (uint8_t *)pkt;
+-  msg_iov.iov_len = pktlen;
+-  msg.msg_iov = &msg_iov;
+-  msg.msg_iovlen = 1;
++
++  /* If using SOCKS5 UDP relay, prepend UDP header */
++  if(qctx->socks5_udp_relay) {
++    socks5_header_len = Curl_SOCKS5_build_udp_header(
++        socks5_header, qctx->socks5_target_host, qctx->socks5_target_port);
++    if(!socks5_header_len)
++      return CURLE_SEND_ERROR;
++    msg_iov[0].iov_base = socks5_header;
++    msg_iov[0].iov_len = socks5_header_len;
++    msg_iov[1].iov_base = (uint8_t *)pkt;
++    msg_iov[1].iov_len = pktlen;
++    iovcnt = 2;
++  }
++  else {
++    msg_iov[0].iov_base = (uint8_t *)pkt;
++    msg_iov[0].iov_len = pktlen;
++  }
++  msg.msg_iov = msg_iov;
++  msg.msg_iovlen = iovcnt;
+ 
+ #if defined(__linux__) && defined(UDP_SEGMENT)
++  /* GSO batching cannot be combined with the SOCKS5 UDP relay: the
++   * proxy expects exactly one SOCKS5 UDP header per datagram. Split
++   * batched QUIC packets into individual datagrams, each with its
++   * own header. */
++  if(qctx->socks5_udp_relay && pktlen > gsolen) {
++    const uint8_t *p, *end = pkt + pktlen;
++    size_t sent;
++
++    *psent = 0;
++    for(p = pkt; p < end; p += gsolen) {
++      size_t len = CURLMIN(gsolen, (size_t)(end - p));
++      CURLcode curlcode = do_sendmsg(cf, data, qctx, p, len, len, &sent);
++      if(curlcode != CURLE_OK)
++        return curlcode;
++      *psent += sent;
++    }
++    return CURLE_OK;
++  }
+   if(pktlen > gsolen) {
+     /* Only set this, when we need it. macOS, for example,
+      * does not seem to like a msg_control of length 0. */
+@@ -180,18 +219,40 @@ static CURLcode do_sendmsg(struct Curl_cfilter *cf,
+     }
+   }
+   else {
+-    assert(pktlen == (size_t)sent);
++    /* with a SOCKS5 relay, sent includes the UDP header bytes */
++    assert(pktlen + socks5_header_len == (size_t)sent);
+   }
+ #else
+   ssize_t sent;
++  unsigned char socks5_header[270];
++  size_t socks5_header_len = 0;
++  unsigned char sendbuf[65536];
+   (void)gsolen;
+ 
+   *psent = 0;
+ 
+-  while((sent = send(qctx->sockfd,
+-                     (const char *)pkt, (SEND_TYPE_ARG3)pktlen, 0)) == -1 &&
+-        SOCKERRNO == EINTR)
+-    ;
++  if(qctx->socks5_udp_relay) {
++    socks5_header_len = Curl_SOCKS5_build_udp_header(
++        socks5_header, qctx->socks5_target_host, qctx->socks5_target_port);
++    if(!socks5_header_len)
++      return CURLE_SEND_ERROR;
++    if(socks5_header_len + pktlen > sizeof(sendbuf))
++      return CURLE_SEND_ERROR;
++    memcpy(sendbuf, socks5_header, socks5_header_len);
++    memcpy(sendbuf + socks5_header_len, pkt, pktlen);
++
++    while((sent = send(qctx->sockfd,
++                       (const char *)sendbuf,
++                       (SEND_TYPE_ARG3)(socks5_header_len + pktlen), 0)) == -1 &&
++          SOCKERRNO == EINTR)
++      ;
++  }
++  else {
++    while((sent = send(qctx->sockfd,
++                       (const char *)pkt, (SEND_TYPE_ARG3)pktlen, 0)) == -1 &&
++          SOCKERRNO == EINTR)
++      ;
++  }
+ 
+   if(sent == -1) {
+     if(SOCKERRNO == EAGAIN || SOCKERRNO == EWOULDBLOCK) {
+@@ -376,11 +437,24 @@ static CURLcode recvmmsg_packets(struct Curl_cfilter *cf,
+     pkts += mcount;
+     for(i = 0; i < mcount; ++i) {
+       total_nread += mmsg[i].msg_len;
+-      result = recv_cb(bufs[i], mmsg[i].msg_len,
+-                       mmsg[i].msg_hdr.msg_name, mmsg[i].msg_hdr.msg_namelen,
+-                       0, userp);
+-      if(result)
+-        goto out;
++      if(qctx->socks5_udp_relay) {
++        size_t hdrlen = socks5_udp_header_len(bufs[i], mmsg[i].msg_len);
++        if(hdrlen > 0 && mmsg[i].msg_len > hdrlen) {
++          result = recv_cb(bufs[i] + hdrlen, mmsg[i].msg_len - hdrlen,
++                           mmsg[i].msg_hdr.msg_name,
++                           mmsg[i].msg_hdr.msg_namelen, 0, userp);
++          if(result)
++            goto out;
++        }
++        /* else skip invalid packet */
++      }
++      else {
++        result = recv_cb(bufs[i], mmsg[i].msg_len,
++                         mmsg[i].msg_hdr.msg_name,
++                         mmsg[i].msg_hdr.msg_namelen, 0, userp);
++        if(result)
++          goto out;
++      }
+     }
+   }
+ 
+@@ -444,8 +518,19 @@ static CURLcode recvmsg_packets(struct Curl_cfilter *cf,
+ 
+     ++pkts;
+     total_nread += (size_t)nread;
+-    result = recv_cb(buf, (size_t)nread, msg.msg_name, msg.msg_namelen,
+-                     0, userp);
++    /* Strip SOCKS5 UDP header if relay is active */
++    if(qctx->socks5_udp_relay) {
++      size_t hdrlen = socks5_udp_header_len(buf, (size_t)nread);
++      if(hdrlen > 0 && (size_t)nread > hdrlen) {
++        result = recv_cb(buf + hdrlen, (size_t)nread - hdrlen,
++                         msg.msg_name, msg.msg_namelen, 0, userp);
++      }
++      /* else skip invalid packet */
++    }
++    else {
++      result = recv_cb(buf, (size_t)nread, msg.msg_name, msg.msg_namelen,
++                       0, userp);
++    }
+     if(result)
+       goto out;
+   }
+@@ -504,8 +589,19 @@ static CURLcode recvfrom_packets(struct Curl_cfilter *cf,
+ 
+     ++pkts;
+     total_nread += (size_t)nread;
+-    result = recv_cb(buf, (size_t)nread, &remote_addr, remote_addrlen,
+-                     0, userp);
++    /* Strip SOCKS5 UDP header if relay is active */
++    if(qctx->socks5_udp_relay) {
++      size_t hdrlen = socks5_udp_header_len(buf, (size_t)nread);
++      if(hdrlen > 0 && (size_t)nread > hdrlen) {
++        result = recv_cb(buf + hdrlen, (size_t)nread - hdrlen,
++                         &remote_addr, remote_addrlen, 0, userp);
++      }
++      /* else skip invalid packet */
++    }
++    else {
++      result = recv_cb(buf, (size_t)nread, &remote_addr, remote_addrlen,
++                       0, userp);
++    }
+     if(result)
+       goto out;
+   }
+@@ -518,6 +614,48 @@ out:
+ }
+ #endif /* !HAVE_SENDMMSG && !HAVE_SENDMSG */
+ 
++/*
++ * Parse SOCKS5 UDP header and return the offset to the actual data.
++ * Returns 0 if the header is invalid.
++ */
++static size_t socks5_udp_header_len(const unsigned char *buf, size_t buflen)
++{
++  size_t hdrlen;
++
++  if(buflen < SOCKS5_UDP_HEADER_MIN_SIZE)
++    return 0; /* too short */
++
++  /* RSV must be 0x00 0x00 */
++  if(buf[0] != 0 || buf[1] != 0)
++    return 0;
++
++  /* FRAG must be 0x00 (no fragmentation support for simplicity) */
++  if(buf[2] != 0)
++    return 0;
++
++  /* ATYP */
++  switch(buf[3]) {
++  case 0x01: /* IPv4 */
++    hdrlen = 6 + 4; /* RSV(2)+FRAG(1)+ATYP(1)+IPv4(4)+PORT(2) */
++    break;
++  case 0x03: /* DOMAINNAME */
++    if(buflen < 5)
++      return 0;
++    hdrlen = 6 + buf[4]; /* RSV(2)+FRAG(1)+ATYP(1)+len(1)+name(var)+PORT(2) */
++    break;
++  case 0x04: /* IPv6 */
++    hdrlen = 6 + 16; /* RSV(2)+FRAG(1)+ATYP(1)+IPv6(16)+PORT(2) */
++    break;
++  default:
++    return 0; /* unknown ATYP */
++  }
++
++  if(buflen < hdrlen)
++    return 0;
++
++  return hdrlen;
++}
++
+ CURLcode vquic_recv_packets(struct Curl_cfilter *cf,
+                             struct Curl_easy *data,
+                             struct cf_quic_ctx *qctx,
+@@ -628,16 +766,11 @@ CURLcode Curl_conn_may_http3(struct Curl_easy *data,
+     failf(data, "HTTP/3 requested for non-HTTPS URL");
+     return CURLE_URL_MALFORMAT;
+   }
+-#ifndef CURL_DISABLE_PROXY
+-  if(conn->bits.socksproxy) {
+-    failf(data, "HTTP/3 is not supported over a SOCKS proxy");
+-    return CURLE_URL_MALFORMAT;
+-  }
++  /* Allow HTTP/3 over SOCKS proxy via UDP ASSOCIATE */
+   if(conn->bits.httpproxy && conn->bits.tunnel_proxy) {
+     failf(data, "HTTP/3 is not supported over a HTTP proxy");
+     return CURLE_URL_MALFORMAT;
+   }
+-#endif
+ 
+   return CURLE_OK;
+ }
+diff --git a/lib/vquic/vquic_int.h b/lib/vquic/vquic_int.h
+index dbcd009d72..98eb324f8c 100644
+--- a/lib/vquic/vquic_int.h
++++ b/lib/vquic/vquic_int.h
+@@ -45,6 +45,10 @@ struct cf_quic_ctx {
+   int wblock_percent; /* percent of writes doing EAGAIN */
+ #endif
+   bool no_gso; /* do not use gso on sending */
++  /* SOCKS5 UDP relay support */
++  char socks5_target_host[256];
++  int socks5_target_port;
++  bool socks5_udp_relay;
+ };
+ 
+ CURLcode vquic_ctx_init(struct cf_quic_ctx *qctx);
 diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
 index 9f9c8d136a..a498d9b07c 100644
 --- a/lib/vtls/openssl.c
@@ -1823,23 +2873,9 @@ index 950faab889..df2d4dc377 100644
  #endif /* USE_OPENSSL */
  #endif /* HEADER_CURL_SSLUSE_H */
 diff --git a/lib/vtls/vtls.c b/lib/vtls/vtls.c
-index 494b660a98..c9e1f65c90 100644
+index 494b660a98..e880293c32 100644
 --- a/lib/vtls/vtls.c
 +++ b/lib/vtls/vtls.c
-@@ -150,10 +150,10 @@ static const struct alpn_spec *alpn_get_spec(int httpwant, bool use_alpn)
-   if(httpwant == CURL_HTTP_VERSION_1_0)
-     return &ALPN_SPEC_H10;
- #ifdef USE_HTTP2
--  if(httpwant >= CURL_HTTP_VERSION_2)
--    return &ALPN_SPEC_H2_H11;
--#endif
-+  if(httpwant >= CURL_HTTP_VERSION_2)
-+    return &ALPN_SPEC_H2_H11;
-+#endif
-   return &ALPN_SPEC_H11;
- }
- #endif /* USE_SSL */
- 
 @@ -210,6 +210,7 @@ Curl_clone_primary_ssl_config(struct ssl_primary_config *source,
    CLONE_STRING(clientcert);
    CLONE_STRING(cipher_list);
@@ -1874,6 +2910,23 @@ index 494b660a98..c9e1f65c90 100644
 +
 +
  #endif /* USE_SSL */
+diff --git a/lib/vtls/vtls.h b/lib/vtls/vtls.h
+index 8ad1cf6def..d3b6dd6af2 100644
+--- a/lib/vtls/vtls.h
++++ b/lib/vtls/vtls.h
+@@ -120,6 +120,12 @@ void Curl_ssl_sessionid_unlock(struct Curl_easy *data);
+  * (e.g. decrement refcount).
+  */
+ void Curl_ssl_kill_session(struct Curl_ssl_session *session);
++/* Get the TLS session ticket of the current connection, if available.
++ * Declared here because getinfo.c uses it for CURLINFO_SSL_SEESION_TICKET.
++ */
++CURLcode Curl_ssl_session_get_ticket(struct Curl_easy *data,
++                                     const unsigned char **out_ticket,
++                                     size_t *out_len);
+ /* delete a session from the cache
+  * Sessionid mutex must be locked (see Curl_ssl_sessionid_lock).
+  * This will call engine-specific curlssl_session_free function, which must
 diff --git a/lib/vtls/vtls_int.h b/lib/vtls/vtls_int.h
 index a6e4544a87..30851bb366 100644
 --- a/lib/vtls/vtls_int.h

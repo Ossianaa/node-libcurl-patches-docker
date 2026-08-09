@@ -3,8 +3,8 @@ FROM ubuntu:20.04 as stage1
 ARG CURL_COMMIT=d755a5f7c009dd63a61b2c745180d8ba937cbfeb
 ARG BORINGSSL_COMMIT=1c7d52ef3e3f373302cb957089fa783d1e5fd8cd
 ARG NGHTTP2_COMMIT=05b792901933664e7aeb7ebb8c87db81123d484a
-ARG NGTCP2_COMMIT=1.25.0
-ARG NGHTTP3_COMMIT=1.18.0
+ARG NGTCP2_COMMIT=843aa72100b508e192f119439a943028b0c6f030
+ARG NGHTTP3_COMMIT=868e81b343d1350597b47f78a5958d60c3695aa4
 ARG ZLIB_COMMIT=04f42ceca40f73e2978b50e93806c2a18c1281fc
 ARG ZSTD_COMMIT=a58b48ef0e543980888a4d9d16c9072ff22135ca
 ARG BROTLI_COMMIT=71fe6cac061ac62c0241f410fbd43a04a6b4f303
@@ -29,7 +29,7 @@ RUN curl -L https://github.com/madler/zlib/archive/${ZLIB_COMMIT}.tar.gz -o zlib
 RUN curl -L https://github.com/nghttp2/nghttp2/archive/${NGHTTP2_COMMIT}.tar.gz -o nghttp2-${NGHTTP2_COMMIT}.tar.gz && \
     tar -xf nghttp2-${NGHTTP2_COMMIT}.tar.gz
 
-RUN curl -L https://github.com/ngtcp2/nghttp3/archive/refs/tags/v${NGHTTP3_COMMIT}.tar.gz -o nghttp3-${NGHTTP3_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/ngtcp2/nghttp3/archive/${NGHTTP3_COMMIT}.tar.gz -o nghttp3-${NGHTTP3_COMMIT}.tar.gz && \
     tar -xf nghttp3-${NGHTTP3_COMMIT}.tar.gz
 
 ARG SFPARSE_COMMIT=4b313cfd2e1b389ae632b36dcd50402307289af2
@@ -38,32 +38,24 @@ RUN mkdir -p nghttp3-${NGHTTP3_COMMIT}/lib/sfparse && \
     curl -L https://github.com/ngtcp2/sfparse/archive/${SFPARSE_COMMIT}.tar.gz -o /tmp/sfparse.tar.gz && \
     tar -xzf /tmp/sfparse.tar.gz --strip-components=1 -C nghttp3-${NGHTTP3_COMMIT}/lib/sfparse
 
-COPY nghttp3-fp.patch nghttp3-${NGHTTP3_COMMIT}/
-COPY nghttp3-msvc.patch nghttp3-${NGHTTP3_COMMIT}/
 
 RUN cd nghttp3-${NGHTTP3_COMMIT} && \
-    patch -p1 < nghttp3-fp.patch && \
-    patch -p1 < nghttp3-msvc.patch
+    patch -p1 < nghttp3-${NGHTTP3_COMMIT}.patch
 
-RUN curl -L https://github.com/ngtcp2/ngtcp2/archive/refs/tags/v${NGTCP2_COMMIT}.tar.gz -o ngtcp2-${NGTCP2_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/ngtcp2/ngtcp2/archive/${NGTCP2_COMMIT}.tar.gz -o ngtcp2-${NGTCP2_COMMIT}.tar.gz && \
     tar -xf ngtcp2-${NGTCP2_COMMIT}.tar.gz
 
-COPY ngtcp2-fp.patch ngtcp2-${NGTCP2_COMMIT}/
-COPY ngtcp2-msvc.patch ngtcp2-${NGTCP2_COMMIT}/
 
 RUN cd ngtcp2-${NGTCP2_COMMIT} && \
-    patch -p1 < ngtcp2-fp.patch && \
-    patch -p1 < ngtcp2-msvc.patch
+    patch -p1 < ngtcp2-${NGTCP2_COMMIT}.patch
 
 RUN curl -L https://github.com/google/boringssl/archive/${BORINGSSL_COMMIT}.tar.gz -o boringssl-${BORINGSSL_COMMIT}.tar.gz && \
     tar -xf boringssl-${BORINGSSL_COMMIT}.tar.gz
 
 COPY boringssl-${BORINGSSL_COMMIT}.patch boringssl-${BORINGSSL_COMMIT}/
-COPY boringssl-fp.patch boringssl-${BORINGSSL_COMMIT}/
 
 RUN cd boringssl-${BORINGSSL_COMMIT} && \
-    patch -p1 < boringssl-${BORINGSSL_COMMIT}.patch && \
-    patch -p1 < boringssl-fp.patch
+    patch -p1 < boringssl-${BORINGSSL_COMMIT}.patch
 
 RUN curl -L https://github.com/curl/curl/archive/${CURL_COMMIT}.tar.gz -o curl-${CURL_COMMIT}.tar.gz && \
     tar -xf curl-${CURL_COMMIT}.tar.gz
@@ -73,12 +65,6 @@ COPY curl-${CURL_COMMIT}.patch curl-${CURL_COMMIT}/
 RUN cd curl-${CURL_COMMIT} && \
     patch -p1 < curl-${CURL_COMMIT}.patch
 
-COPY curl-socks5-udp.patch curl-${CURL_COMMIT}/
-COPY curl-h3fp.patch curl-${CURL_COMMIT}/
-
-RUN cd curl-${CURL_COMMIT} && \
-    patch -p1 < curl-socks5-udp.patch && \
-    patch -p1 < curl-h3fp.patch
 
 RUN mv boringssl-${BORINGSSL_COMMIT} boringssl && \
     mv nghttp2-${NGHTTP2_COMMIT} nghttp2 && \

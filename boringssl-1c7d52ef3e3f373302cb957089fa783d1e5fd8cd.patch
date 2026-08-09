@@ -1,19 +1,45 @@
 diff --git a/include/openssl/ssl.h b/include/openssl/ssl.h
-index 5c6d17ad2..2d5e7e935 100644
+index 5c6d17a..f32ae39 100644
 --- a/include/openssl/ssl.h
 +++ b/include/openssl/ssl.h
-@@ -6263,6 +6263,9 @@ OPENSSL_EXPORT int SSL_CTX_set1_curves_list(SSL_CTX *ctx, const char *curves);
+@@ -6263,6 +6263,35 @@ OPENSSL_EXPORT int SSL_CTX_set1_curves_list(SSL_CTX *ctx, const char *curves);
  // SSL_set1_curves_list calls `SSL_set1_groups_list`.
  OPENSSL_EXPORT int SSL_set1_curves_list(SSL *ssl, const char *curves);
  
 +OPENSSL_EXPORT int SSL_CTX_set_ciphersuites(SSL_CTX* ctx, char* str);
 +
++// SSL_CTX_set_ciphersuites_quic is like SSL_CTX_set_ciphersuites but applies
++// only to QUIC (HTTP/3) connections. The TLS 1.3 cipher suite order used for
++// QUIC is kept independent from the one used for HTTP/1.1 and HTTP/2.
++OPENSSL_EXPORT int SSL_CTX_set_ciphersuites_quic(SSL_CTX* ctx, char* str);
++
++// SSL_CTX_set_extension_permutation sets the order of ClientHello extensions
++// and restricts the set of extensions sent. |str| is a comma-separated list
++// of 0-based indices into the internal extension table (see
++// ssl/extensions.cc kExtensions). Only the listed extensions are sent, in the
++// given order. An empty or NULL string restores the default order (all
++// extensions).
 +OPENSSL_EXPORT int SSL_CTX_set_extension_permutation(SSL_CTX* ctx, char* str);
++
++// SSL_CTX_set_fp_grease enables or disables TLS-level GREASE (fake ciphers,
++// extensions, groups and versions). BoringSSL forks typically enable GREASE by
++// default; this overrides that default per context. |enable| of 0 disables
++// GREASE, any other value enables it.
++OPENSSL_EXPORT int SSL_CTX_set_fp_grease(SSL_CTX* ctx, int enable);
++
++// SSL_CTX_set_fp_alps configures the ALPS (application settings) protocol and
++// settings advertised in the ClientHello. The default is "h2" with empty
++// settings. Passing |settings| of NULL and |settings_len| of 0 sends empty
++// settings.
++OPENSSL_EXPORT int SSL_CTX_set_fp_alps(SSL_CTX* ctx, const uint8_t* proto,
++                                       size_t proto_len,
++                                       const uint8_t* settings,
++                                       size_t settings_len);
  // TLSEXT_nid_unknown is a constant used in OpenSSL for
  // `SSL_get_negotiated_group` to return an unrecognized group. BoringSSL never
  // returns this value, but we define this constant for compatibility.
 diff --git a/include/openssl/tls1.h b/include/openssl/tls1.h
-index f4b348481..2a4bf9462 100644
+index f4b3484..2a4bf94 100644
 --- a/include/openssl/tls1.h
 +++ b/include/openssl/tls1.h
 @@ -48,7 +48,7 @@ extern "C" {
@@ -376,7 +402,7 @@ index f4b348481..2a4bf9462 100644
  #ifdef __cplusplus
  }  // extern C
 diff --git a/ssl/encrypted_client_hello.cc b/ssl/encrypted_client_hello.cc
-index eacc37598..3bc87765f 100644
+index eacc375..3bc8776 100644
 --- a/ssl/encrypted_client_hello.cc
 +++ b/ssl/encrypted_client_hello.cc
 @@ -736,9 +736,7 @@ static bool setup_ech_grease(SSL_HANDSHAKE *hs) {
@@ -391,7 +417,7 @@ index eacc37598..3bc87765f 100644
        has_aes_hw ? EVP_hpke_aes_128_gcm() : EVP_hpke_chacha20_poly1305();
    static_assert(ssl_grease_ech_config_id < sizeof(hs->grease_seed),
 diff --git a/ssl/extensions.cc b/ssl/extensions.cc
-index 1f29be1f8..f11d55fea 100644
+index 1f29be1..f11d55f 100644
 --- a/ssl/extensions.cc
 +++ b/ssl/extensions.cc
 @@ -11,7 +11,9 @@
@@ -617,15 +643,20 @@ index 1f29be1f8..f11d55fea 100644
  
  bool ssl_add_serverhello_tlsext(SSL_HANDSHAKE *hs, CBB *out) {
 diff --git a/ssl/handshake_client.cc b/ssl/handshake_client.cc
-index af70197d5..6ce1f8d2d 100644
+index af70197..c88aa34 100644
 --- a/ssl/handshake_client.cc
 +++ b/ssl/handshake_client.cc
-@@ -111,20 +111,42 @@ static bool ssl_write_client_cipher_list(const SSL_HANDSHAKE *hs, CBB *out,
+@@ -111,20 +111,47 @@ static bool ssl_write_client_cipher_list(const SSL_HANDSHAKE *hs, CBB *out,
    // Add TLS 1.3 ciphers. Order ChaCha20-Poly1305 relative to AES-GCM based on
    // hardware support.
    if (hs->max_version >= TLS1_3_VERSION) {
-+    if (!ssl->ctx->cipher13_flag_list.empty()) {
-+        for (uint8_t flag : ssl->ctx->cipher13_flag_list) {
++    // QUIC (HTTP/3) connections use their own cipher suite configuration,
++    // independent from HTTP/1.1 and HTTP/2 connections.
++    const bssl::Array<uint8_t> &cipher13_flag_list =
++        ssl->quic_method != nullptr ? ssl->ctx->cipher13_flag_list_quic
++                                    : ssl->ctx->cipher13_flag_list;
++    if (!cipher13_flag_list.empty()) {
++        for (uint8_t flag : cipher13_flag_list) {
 +            int id = 0;
 +            switch (flag) {
 +            case 1:
@@ -672,7 +703,7 @@ index af70197d5..6ce1f8d2d 100644
      };
  
      const bool has_aes_hw = ssl->config->aes_hw_override
-@@ -132,18 +154,20 @@ static bool ssl_write_client_cipher_list(const SSL_HANDSHAKE *hs, CBB *out,
+@@ -132,18 +159,20 @@ static bool ssl_write_client_cipher_list(const SSL_HANDSHAKE *hs, CBB *out,
                                  : EVP_has_aes_hardware();
      const bssl::Span<const uint16_t> ciphers =
          ssl->config->compliance_policy == ssl_compliance_policy_cnsa_202407
@@ -700,7 +731,7 @@ index af70197d5..6ce1f8d2d 100644
    if (hs->min_version < TLS1_3_VERSION && type != ssl_client_hello_inner) {
      bool any_enabled = false;
      for (const SSL_CIPHER *cipher : SSL_get_ciphers(ssl)) {
-@@ -352,7 +376,6 @@ bool ssl_accepts_server_certificate_auth(const SSL_HANDSHAKE *hs) {
+@@ -352,7 +381,6 @@ bool ssl_accepts_server_certificate_auth(const SSL_HANDSHAKE *hs) {
  
  static enum ssl_hs_wait_t do_start_connect(SSL_HANDSHAKE *hs) {
    SSL *const ssl = hs->ssl;
@@ -709,7 +740,7 @@ index af70197d5..6ce1f8d2d 100644
    // `session_reused` must be reset in case this is a renegotiation.
    ssl->s3->session_reused = false;
 diff --git a/ssl/internal.h b/ssl/internal.h
-index bdd632039..ac1a16bcc 100644
+index bdd6320..bf706f3 100644
 --- a/ssl/internal.h
 +++ b/ssl/internal.h
 @@ -244,8 +244,9 @@ BSSL_NAMESPACE_BEGIN
@@ -723,17 +754,30 @@ index bdd632039..ac1a16bcc 100644
  
  // Bits for `algorithm_prf` (handshake digest).
  #define SSL_HANDSHAKE_MAC_DEFAULT 0x1
-@@ -4198,6 +4199,8 @@ class SSLContext : public ssl_ctx_st, public RefCounted<SSLContext> {
+@@ -4198,6 +4199,21 @@ class SSLContext : public ssl_ctx_st, public RefCounted<SSLContext> {
    // signal its sessions may be resumed across names in the server certificate.
    bool resumption_across_names_enabled : 1;
  
 +  bssl::Array<uint8_t> cipher13_flag_list;
++  // TLS 1.3 cipher suite flag list for QUIC (HTTP/3) connections only.
++  // Kept independent from |cipher13_flag_list| (HTTP/1.1 and HTTP/2).
++  bssl::Array<uint8_t> cipher13_flag_list_quic;
 +  bssl::Array<uint8_t> extension_permutation;
++
++  // Fingerprint profile configuration (BoringSSL fork). These override the
++  // defaults applied in |SSL_new| so an application can impersonate a
++  // specific ClientHello shape per SSL_CTX.
++  // fp_grease enables or disables TLS-level GREASE. Default: 1 (enabled).
++  int fp_grease;
++  // fp_alps_proto/fp_alps_settings hold the ALPS protocol and settings
++  // advertised in the ClientHello. Default: "h2" with empty settings.
++  bssl::Array<uint8_t> fp_alps_proto;
++  bssl::Array<uint8_t> fp_alps_settings;
   private:
    friend RefCounted;
    ~SSLContext();
 diff --git a/ssl/ssl_cipher.cc b/ssl/ssl_cipher.cc
-index 7799d79f9..a2c697408 100644
+index 7799d79..a2c6974 100644
 --- a/ssl/ssl_cipher.cc
 +++ b/ssl/ssl_cipher.cc
 @@ -75,6 +75,64 @@ static constexpr SSL_CIPHER kCiphers[] = {
@@ -970,7 +1014,7 @@ index 7799d79f9..a2c697408 100644
    // If the rule_string begins with DEFAULT, apply the default rule before
    // using the (possibly available) additional rules.
 diff --git a/ssl/ssl_key_share.cc b/ssl/ssl_key_share.cc
-index 5923110e7..3e3ad94fe 100644
+index 5923110..3e3ad94 100644
 --- a/ssl/ssl_key_share.cc
 +++ b/ssl/ssl_key_share.cc
 @@ -444,10 +444,14 @@ constexpr NamedGroup kNamedGroups[] = {
@@ -991,7 +1035,7 @@ index 5923110e7..3e3ad94fe 100644
  }  // namespace
  
 diff --git a/ssl/ssl_lib.cc b/ssl/ssl_lib.cc
-index fd287f5b6..a164cc73b 100644
+index fd287f5..a8306c9 100644
 --- a/ssl/ssl_lib.cc
 +++ b/ssl/ssl_lib.cc
 @@ -13,7 +13,9 @@
@@ -1005,23 +1049,46 @@ index fd287f5b6..a164cc73b 100644
  #include <openssl/ssl.h>
  
  #include <algorithm>
-@@ -567,7 +569,14 @@ SSL *SSL_new(SSL_CTX *ctx) {
+@@ -396,7 +398,8 @@ bssl::SSLContext::SSLContext(const SSL_METHOD *ssl_method)
+       enable_early_data(false),
+       aes_hw_override(false),
+       aes_hw_override_value(false),
+-      resumption_across_names_enabled(false) {
++      resumption_across_names_enabled(false),
++      fp_grease(true) {
+   CRYPTO_new_ex_data(&ex_data);
+ }
+ 
+@@ -567,7 +570,27 @@ SSL *SSL_new(SSL_CTX *ctx) {
    ssl->config->ocsp_stapling_enabled = ctx_impl->ocsp_stapling_enabled;
    ssl->config->handoff = ctx_impl->handoff;
    ssl->quic_method = ctx_impl->quic_method;
 -
 +  SSL_enable_ocsp_stapling(ssl.get());
-+  SSL_add_application_settings(ssl.get(),
-+      reinterpret_cast<const uint8_t*>("h2"),
-+      2, NULL, 0);
-+  SSL_CTX_set_grease_enabled(ssl->ctx.get(), 1);
++  // Fingerprint profile: ALPS protocol/settings and TLS-level GREASE are
++  // configurable per SSL_CTX via SSL_CTX_set_fp_alps/SSL_CTX_set_fp_grease.
++  if (!ssl->ctx->fp_alps_proto.empty()) {
++    SSL_add_application_settings(ssl.get(), ssl->ctx->fp_alps_proto.data(),
++                                 ssl->ctx->fp_alps_proto.size(),
++                                 ssl->ctx->fp_alps_settings.empty()
++                                     ? nullptr
++                                     : ssl->ctx->fp_alps_settings.data(),
++                                 ssl->ctx->fp_alps_settings.size());
++  } else {
++    SSL_add_application_settings(ssl.get(),
++        reinterpret_cast<const uint8_t*>("h2"),
++        2, NULL, 0);
++  }
++  if (ssl->ctx->fp_grease) {
++    SSL_CTX_set_grease_enabled(ssl->ctx.get(), 1);
++  }
 +  SSL_enable_signed_cert_timestamps(ssl.get());
 +  SSL_set_enable_ech_grease(ssl.get(), 1);
 +  SSL_set1_requested_trust_anchors(ssl.get(), nullptr, 0);
    if (!ssl->method->ssl_new(ssl.get()) ||
        !ssl->ctx->x509_method->ssl_new(ssl->s3->hs.get())) {
      return nullptr;
-@@ -3514,7 +3523,7 @@ static int Configure(SSLContext *ctx) {
+@@ -3514,7 +3537,7 @@ static int Configure(SSLContext *ctx) {
  }
  
  static int Configure(SSL *ssl) {
@@ -1030,47 +1097,119 @@ index fd287f5b6..a164cc73b 100644
  
    return SSL_set_min_proto_version(ssl, TLS1_2_VERSION) &&
           SSL_set_max_proto_version(ssl, TLS1_3_VERSION) &&
-@@ -3662,6 +3671,38 @@ int SSL_set_compliance_policy(SSL *ssl, enum ssl_compliance_policy_t policy) {
+@@ -3662,6 +3685,110 @@ int SSL_set_compliance_policy(SSL *ssl, enum ssl_compliance_policy_t policy) {
    }
  }
  
-+int SSL_CTX_set_ciphersuites(SSL_CTX *ctx, char *str) {
-+  if (!str) {
-+    return 0;
++static bool ssl_ctx_parse_cipher13_flags(char *str,
++                                        bssl::Array<uint8_t> *out) {
++  if (!str || !*str) {
++    return false;
 +  }
 +  bssl::Array<uint8_t> arr;
-+  if (!arr.Init(strlen(str))) return 0;
++  if (!arr.Init(strlen(str))) {
++    return false;
++  }
 +  int i = 0;
 +  const char *l = str;
 +  do {
-+    arr[i++] = *l;
++    // '1' = TLS_AES_128_GCM_SHA256, '2' = TLS_AES_256_GCM_SHA384,
++    // '3' = TLS_CHACHA20_POLY1305_SHA256
++    if (*l < '1' || *l > '3') {
++      return false;
++    }
++    arr[i++] = (uint8_t)(*l - '0');
 +  } while (*++l != '\0');
++  *out = std::move(arr);
++  return true;
++}
++
++int SSL_CTX_set_ciphersuites(SSL_CTX *ctx, char *str) {
 +  auto ctx_ = static_cast<SSLContext*>(ctx);
-+  ctx_->cipher13_flag_list = std::move(arr);
-+  return ctx_->cipher13_flag_list.empty() ? 0 : 1;
++  return ssl_ctx_parse_cipher13_flags(str, &ctx_->cipher13_flag_list) ? 1 : 0;
++}
++
++// SSL_CTX_set_ciphersuites_quic configures the TLS 1.3 cipher suite order for
++// QUIC (HTTP/3) connections only, independent from SSL_CTX_set_ciphersuites
++// which applies to HTTP/1.1 and HTTP/2 connections.
++int SSL_CTX_set_ciphersuites_quic(SSL_CTX *ctx, char *str) {
++  auto ctx_ = static_cast<SSLContext*>(ctx);
++  return ssl_ctx_parse_cipher13_flags(str, &ctx_->cipher13_flag_list_quic)
++             ? 1
++             : 0;
 +}
 +
 +int SSL_CTX_set_extension_permutation(SSL_CTX *ctx, char *str) {
-+  if (!str) {
++  if (!str || !*str) {
 +    return 0;
 +  }
 +  bssl::Array<uint8_t> arr;
-+  if (!arr.Init(strlen(str))) return 0;
-+  int i = 0;
-+  const char *l = str;
-+  do {
-+    arr[i++] = *l - 1;
-+  } while (*++l != '\0');
++  if (!arr.Init(strlen(str))) {
++    return 0;
++  }
++  size_t n = 0;
++  const char *p = str;
++  while (*p) {
++    while (*p == ',' || *p == ' ' || *p == '\t') {
++      ++p;
++    }
++    if (!*p) {
++      break;
++    }
++    char *end = nullptr;
++    unsigned long v = strtoul(p, &end, 10);
++    if (end == p || v > UINT8_MAX) {
++      // Malformed input: ignore the whole permutation.
++      return 0;
++    }
++    arr[n++] = (uint8_t)v;
++    p = end;
++  }
++  if (n == 0) {
++    return 0;
++  }
 +  auto ctx_ = static_cast<SSLContext*>(ctx);
-+  ctx_->extension_permutation = std::move(arr);
-+  return ctx_->extension_permutation.empty() ? 0 : 1;
++  bssl::Array<uint8_t> perm;
++  if (!perm.Init(n)) {
++    return 0;
++  }
++  memcpy(perm.data(), arr.data(), n);
++  ctx_->extension_permutation = std::move(perm);
++  return 1;
++}
++
++int SSL_CTX_set_fp_grease(SSL_CTX *ctx, int enable) {
++  auto ctx_ = static_cast<SSLContext*>(ctx);
++  ctx_->fp_grease = enable ? 1 : 0;
++  return 1;
++}
++
++int SSL_CTX_set_fp_alps(SSL_CTX *ctx, const uint8_t *proto, size_t proto_len,
++                        const uint8_t *settings, size_t settings_len) {
++  auto ctx_ = static_cast<SSLContext*>(ctx);
++  bssl::Array<uint8_t> proto_copy, settings_copy;
++  if (proto_len) {
++    if (!proto_copy.Init(proto_len)) {
++      return 0;
++    }
++    memcpy(proto_copy.data(), proto, proto_len);
++  }
++  if (settings_len) {
++    if (!settings_copy.Init(settings_len)) {
++      return 0;
++    }
++    memcpy(settings_copy.data(), settings, settings_len);
++  }
++  ctx_->fp_alps_proto = std::move(proto_copy);
++  ctx_->fp_alps_settings = std::move(settings_copy);
++  return 1;
 +}
 +
  enum ssl_compliance_policy_t SSL_get_compliance_policy(const SSL *ssl) {
    return ssl->config->compliance_policy;
  }
 diff --git a/tool/server.cc b/tool/server.cc
-index 41497493d..289097b0c 100644
+index 4149749..289097b 100644
 --- a/tool/server.cc
 +++ b/tool/server.cc
 @@ -296,7 +296,7 @@ bool Server(const std::vector<std::string> &args) {

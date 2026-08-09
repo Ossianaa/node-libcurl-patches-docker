@@ -1,0 +1,154 @@
+diff --git a/lib/includes/nghttp3/nghttp3.h b/lib/includes/nghttp3/nghttp3.h
+index d3dd921..91df6c6 100644
+--- a/lib/includes/nghttp3/nghttp3.h
++++ b/lib/includes/nghttp3/nghttp3.h
+@@ -1614,6 +1614,11 @@ NGHTTP3_EXTERN nghttp3_ssize nghttp3_qpack_decoder_read_request(
+   nghttp3_qpack_nv *nv, uint8_t *pflags, const uint8_t *src, size_t srclen,
+   int fin);
+ 
++typedef struct nghttp3_settings_entry {
++  uint64_t id;
++  uint64_t value;
++} nghttp3_settings_entry;
++
+ /**
+  * @function
+  *
+@@ -1899,6 +1904,15 @@ typedef struct nghttp3_settings {
+    * .. version-added:: 1.13.0
+    */
+   nghttp3_qpack_indexing_strat qpack_indexing_strat;
++  /**
++   * :member:`fp_iv` is the optional fingerprint SETTINGS list.  If
++   * :member:`fp_ivlen` is nonzero, the SETTINGS frame is built
++   * exclusively from these entries, in the given order, instead of the
++   * default SETTINGS.  The caller must keep the memory pointed to by
++   * :member:`fp_iv` valid for the lifetime of the connection.
++   */
++  nghttp3_settings_entry *fp_iv;
++  size_t fp_ivlen;
+ } nghttp3_settings;
+ 
+ #define NGHTTP3_PROTO_SETTINGS_V1 1
+diff --git a/lib/nghttp3_conn.c b/lib/nghttp3_conn.c
+index 04b50ac..7e8e267 100644
+--- a/lib/nghttp3_conn.c
++++ b/lib/nghttp3_conn.c
+@@ -332,6 +332,20 @@ static int conn_new(nghttp3_conn **pconn, int server, int callbacks_version,
+   nghttp3_qpack_encoder_set_indexing_strat(&conn->qenc,
+                                            settings->qpack_indexing_strat);
+ 
++  /* Fingerprint profile: if the local settings advertise a QPACK
++     dynamic table capacity, size the encoder accordingly (as Chrome
++     does) so the encoder stream carries the capacity instruction and
++     stays consistent with the advertised SETTINGS. */
++  if (settings->qpack_max_dtable_capacity) {
++    size_t enc_cap = settings->qpack_max_dtable_capacity;
++
++    if (settings->qpack_encoder_max_dtable_capacity &&
++        enc_cap > settings->qpack_encoder_max_dtable_capacity) {
++      enc_cap = settings->qpack_encoder_max_dtable_capacity;
++    }
++    nghttp3_qpack_encoder_set_max_dtable_capacity(&conn->qenc, enc_cap);
++  }
++
+   nghttp3_pq_init(&conn->qpack_blocked_streams, ricnt_less, mem);
+ 
+   for (i = 0; i < NGHTTP3_URGENCY_LEVELS; ++i) {
+diff --git a/lib/nghttp3_frame.h b/lib/nghttp3_frame.h
+index 7806cad..9da09db 100644
+--- a/lib/nghttp3_frame.h
++++ b/lib/nghttp3_frame.h
+@@ -82,11 +82,6 @@ typedef struct nghttp3_frame_headers {
+ #define NGHTTP3_H2_SETTINGS_ID_INITIAL_WINDOW_SIZE 0x4U
+ #define NGHTTP3_H2_SETTINGS_ID_MAX_FRAME_SIZE 0x5U
+ 
+-typedef struct nghttp3_settings_entry {
+-  uint64_t id;
+-  uint64_t value;
+-} nghttp3_settings_entry;
+-
+ typedef struct nghttp3_frame_settings {
+   uint64_t type;
+   size_t niv;
+diff --git a/lib/nghttp3_macro.h b/lib/nghttp3_macro.h
+index 2b03dc5..9fc4c70 100644
+--- a/lib/nghttp3_macro.h
++++ b/lib/nghttp3_macro.h
+@@ -78,7 +78,6 @@ nghttp3_max_def(unsigned_char, unsigned char)
+       int: nghttp3_max_int,                                                    \
+       short int: nghttp3_max_short_int,                                        \
+       signed char: nghttp3_max_signed_char,                                    \
+-      char: nghttp3_max_char,                                                  \
+       unsigned long long int: nghttp3_max_unsigned_long_long_int,              \
+       unsigned long int: nghttp3_max_unsigned_long_int,                        \
+       unsigned int: nghttp3_max_unsigned_int,                                  \
+@@ -86,7 +85,6 @@ nghttp3_max_def(unsigned_char, unsigned char)
+       unsigned char: nghttp3_max_unsigned_char),                               \
+     short int: nghttp3_max_short_int,                                          \
+     signed char: nghttp3_max_signed_char,                                      \
+-    char: nghttp3_max_char,                                                    \
+     unsigned long long int: nghttp3_max_unsigned_long_long_int,                \
+     unsigned long int: nghttp3_max_unsigned_long_int,                          \
+     unsigned int: nghttp3_max_unsigned_int,                                    \
+@@ -118,7 +116,6 @@ nghttp3_min_def(unsigned_char, unsigned char)
+       int: nghttp3_min_int,                                                    \
+       short int: nghttp3_min_short_int,                                        \
+       signed char: nghttp3_min_signed_char,                                    \
+-      char: nghttp3_min_char,                                                  \
+       unsigned long long int: nghttp3_min_unsigned_long_long_int,              \
+       unsigned long int: nghttp3_min_unsigned_long_int,                        \
+       unsigned int: nghttp3_min_unsigned_int,                                  \
+@@ -126,7 +123,6 @@ nghttp3_min_def(unsigned_char, unsigned char)
+       unsigned char: nghttp3_min_unsigned_char),                               \
+     short int: nghttp3_min_short_int,                                          \
+     signed char: nghttp3_min_signed_char,                                      \
+-    char: nghttp3_min_char,                                                    \
+     unsigned long long int: nghttp3_min_unsigned_long_long_int,                \
+     unsigned long int: nghttp3_min_unsigned_long_int,                          \
+     unsigned int: nghttp3_min_unsigned_int,                                    \
+diff --git a/lib/nghttp3_stream.c b/lib/nghttp3_stream.c
+index 0929800..13b3329 100644
+--- a/lib/nghttp3_stream.c
++++ b/lib/nghttp3_stream.c
+@@ -341,6 +341,40 @@ int nghttp3_stream_write_settings(nghttp3_stream *stream,
+   const nghttp3_settings *local_settings = infr->local_settings;
+   uint64_t payloadlen;
+ 
++  if (local_settings->fp_ivlen) {
++    /* Fingerprint profile: send exactly the configured SETTINGS, in
++       wire order, instead of the defaults. */
++    size_t i;
++
++    if (local_settings->fp_ivlen > 15) {
++      return NGHTTP3_ERR_INVALID_ARGUMENT;
++    }
++
++    fr.niv = local_settings->fp_ivlen;
++    for (i = 0; i < local_settings->fp_ivlen; ++i) {
++      ents[i] = (nghttp3_settings_entry){
++        .id = local_settings->fp_iv[i].id,
++        .value = local_settings->fp_iv[i].value,
++      };
++    }
++
++    len = nghttp3_frame_write_settings_len(&payloadlen, &fr);
++
++    rv = nghttp3_stream_ensure_chunk(stream, len);
++    if (rv != 0) {
++      return rv;
++    }
++
++    chunk = nghttp3_stream_get_chunk(stream);
++    nghttp3_typed_buf_shared_init(&tbuf, chunk);
++
++    chunk->last = nghttp3_frame_write_settings(chunk->last, &fr, payloadlen);
++
++    tbuf.buf.last = chunk->last;
++
++    return nghttp3_stream_outq_add(stream, &tbuf);
++  }
++
+   ents[0] = (nghttp3_settings_entry){
+     .id = NGHTTP3_SETTINGS_ID_MAX_FIELD_SECTION_SIZE,
+     .value = local_settings->max_field_section_size,

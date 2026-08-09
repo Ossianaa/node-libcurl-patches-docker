@@ -33,8 +33,8 @@ ENV CPATH "/usr/aarch64-linux-gnu/include:/usr/local/aarch64-linux-gnu/usr/inclu
 ARG CURL_COMMIT=d755a5f7c009dd63a61b2c745180d8ba937cbfeb
 ARG BORINGSSL_COMMIT=1c7d52ef3e3f373302cb957089fa783d1e5fd8cd
 ARG NGHTTP2_COMMIT=05b792901933664e7aeb7ebb8c87db81123d484a
-ARG NGTCP2_COMMIT=1.25.0
-ARG NGHTTP3_COMMIT=1.18.0
+ARG NGTCP2_COMMIT=843aa72100b508e192f119439a943028b0c6f030
+ARG NGHTTP3_COMMIT=868e81b343d1350597b47f78a5958d60c3695aa4
 ARG CARES_COMMIT=2aa086f822aad5017a6f2061ef656f237a62d0ed
 ARG ZLIB_COMMIT=04f42ceca40f73e2978b50e93806c2a18c1281fc
 ARG ZSTD_COMMIT=a58b48ef0e543980888a4d9d16c9072ff22135ca
@@ -79,11 +79,9 @@ RUN curl -L https://github.com/google/boringssl/archive/${BORINGSSL_COMMIT}.tar.
     tar -xf boringssl-${BORINGSSL_COMMIT}.tar.gz
 
 COPY boringssl-${BORINGSSL_COMMIT}.patch boringssl-${BORINGSSL_COMMIT}/
-COPY boringssl-fp.patch boringssl-${BORINGSSL_COMMIT}/
 
 RUN cd boringssl-${BORINGSSL_COMMIT} && \
-    patch -p1 < boringssl-${BORINGSSL_COMMIT}.patch && \
-    patch -p1 < boringssl-fp.patch
+    patch -p1 < boringssl-${BORINGSSL_COMMIT}.patch
 
 RUN cd boringssl-${BORINGSSL_COMMIT} && \
     mkdir build && cd build && \
@@ -92,7 +90,7 @@ RUN cd boringssl-${BORINGSSL_COMMIT} && \
 
 RUN cp -R boringssl-${BORINGSSL_COMMIT}/include boringssl-${BORINGSSL_COMMIT}/build
 
-RUN curl -L https://github.com/ngtcp2/nghttp3/archive/refs/tags/v${NGHTTP3_COMMIT}.tar.gz -o nghttp3-${NGHTTP3_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/ngtcp2/nghttp3/archive/${NGHTTP3_COMMIT}.tar.gz -o nghttp3-${NGHTTP3_COMMIT}.tar.gz && \
     tar -xf nghttp3-${NGHTTP3_COMMIT}.tar.gz
 
 ARG SFPARSE_COMMIT=4b313cfd2e1b389ae632b36dcd50402307289af2
@@ -101,21 +99,19 @@ RUN mkdir -p nghttp3-${NGHTTP3_COMMIT}/lib/sfparse && \
     curl -L https://github.com/ngtcp2/sfparse/archive/${SFPARSE_COMMIT}.tar.gz -o /tmp/sfparse.tar.gz && \
     tar -xzf /tmp/sfparse.tar.gz --strip-components=1 -C nghttp3-${NGHTTP3_COMMIT}/lib/sfparse
 
-COPY nghttp3-fp.patch nghttp3-${NGHTTP3_COMMIT}/
 
 RUN cd nghttp3-${NGHTTP3_COMMIT} && \
-    patch -p1 < nghttp3-fp.patch && \
+    patch -p1 < nghttp3-${NGHTTP3_COMMIT}.patch && \
     mkdir build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=1 -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 -DENABLE_LIB_ONLY=1 -DBUILD_TESTING=OFF .. && \
     cmake --build . --config Release --target install
 
-RUN curl -L https://github.com/ngtcp2/ngtcp2/archive/refs/tags/v${NGTCP2_COMMIT}.tar.gz -o ngtcp2-${NGTCP2_COMMIT}.tar.gz && \
+RUN curl -L https://github.com/ngtcp2/ngtcp2/archive/${NGTCP2_COMMIT}.tar.gz -o ngtcp2-${NGTCP2_COMMIT}.tar.gz && \
     tar -xf ngtcp2-${NGTCP2_COMMIT}.tar.gz
 
-COPY ngtcp2-fp.patch ngtcp2-${NGTCP2_COMMIT}/
 
 RUN cd ngtcp2-${NGTCP2_COMMIT} && \
-    patch -p1 < ngtcp2-fp.patch && \
+    patch -p1 < ngtcp2-${NGTCP2_COMMIT}.patch && \
     mkdir build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=1 -DCMAKE_INSTALL_PREFIX=./installed \
     -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 \
@@ -136,12 +132,6 @@ COPY curl-${CURL_COMMIT}.patch curl-${CURL_COMMIT}/
 RUN cd curl-${CURL_COMMIT} && \
     patch -p1 < curl-${CURL_COMMIT}.patch
 
-COPY curl-socks5-udp.patch curl-${CURL_COMMIT}/
-COPY curl-h3fp.patch curl-${CURL_COMMIT}/
-
-RUN cd curl-${CURL_COMMIT} && \
-    patch -p1 < curl-socks5-udp.patch && \
-    patch -p1 < curl-h3fp.patch
 
 RUN cd curl-${CURL_COMMIT} && \
     mkdir build && cd build && \
