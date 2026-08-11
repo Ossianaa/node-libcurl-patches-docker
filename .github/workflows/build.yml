@@ -8,6 +8,7 @@ on:
   push:
     tags:
       - v*
+  workflow_dispatch:
 env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -148,9 +149,46 @@ jobs:
             name: curl_arm64-apple-darwin.tar.gz
             path: ./output
 
+  build-test-curl-cli:
+    name: Build (test-curl-cli, x86_64-linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the Docker image
+        run: docker build . -f Dockerfile-test-curl-cli -t curl_test_curl_cli
+
+      - name: Export static libraries
+        run: |
+          mkdir -p ./output
+          docker run --rm -v $PWD/output:/output curl_test_curl_cli
+
+      - name: Export curl binary and test-fp
+        run: |
+          docker create --name curl_cli_tmp curl_test_curl_cli
+          docker cp curl_cli_tmp:/usr/local/bin/curl ./output/curl
+          docker cp curl_cli_tmp:/usr/local/bin/test-fp ./output/test-fp
+          docker rm curl_cli_tmp
+
+      - name: Compress as tar
+        run: |
+          tar -czf ./curl_test-curl-cli.tar.gz -C ./output .
+          ls -la ./output
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: curl_test-curl-cli.tar.gz
+          path: ./output
+
   release:
     runs-on: ubuntu-latest
-    needs: [build-x86_64-unknown-linux-gnu,build-arm64-unknown-linux-gnu,build-x86_64-pc-windows-msvc,build-x86_64-apple-darwin,build-arm64-apple-darwin]
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-x86_64-unknown-linux-gnu,build-arm64-unknown-linux-gnu,build-x86_64-pc-windows-msvc,build-x86_64-apple-darwin,build-arm64-apple-darwin,build-test-curl-cli]
 
     steps:
       # 检出代码
@@ -192,6 +230,11 @@ jobs:
         with:
           name: curl_arm64-apple-darwin.tar.gz
           path: ./curl_arm64-apple-darwin
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: curl_test-curl-cli.tar.gz
+          path: ./curl_test-curl-cli
 
       - name: Compress as tar
         run: |
@@ -201,6 +244,7 @@ jobs:
           tar -czf ./output/curl_x86_64-pc-windows-msvc.tar.gz -C ./curl_x86_64-pc-windows-msvc .
           tar -czf ./output/curl_x86_64-apple-darwin.tar.gz -C ./curl_x86_64-apple-darwin .
           tar -czf ./output/curl_arm64-apple-darwin.tar.gz -C ./curl_arm64-apple-darwin .
+          tar -czf ./output/curl_test-curl-cli.tar.gz -C ./curl_test-curl-cli .
 
       - name: list and Release Assets
         run: |

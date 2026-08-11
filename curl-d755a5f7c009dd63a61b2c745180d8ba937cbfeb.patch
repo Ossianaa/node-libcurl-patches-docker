@@ -1,4 +1,4 @@
-diff --git a/CMakeLists.txt b/CMakeLists.txt
+﻿diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 1b19c681d2..ae12c4c872 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
@@ -775,10 +775,10 @@ index 645cc1a9cd..a5076cfd8e 100644
  #define SSL_free SSL_FREE
  #define SSL_get1_session SSL_GET1_SESSION
 diff --git a/lib/socks.c b/lib/socks.c
-index a7b5ab07e4..4b240d87d0 100644
+index a7b5ab07e4..1b119359bd 100644
 --- a/lib/socks.c
 +++ b/lib/socks.c
-@@ -1053,6 +1053,390 @@ CONNECT_REQ_SEND:
+@@ -1053,6 +1053,394 @@ CONNECT_REQ_SEND:
    return CURLPX_OK; /* Proxy was successful! */
  }
  
@@ -891,12 +891,16 @@ index a7b5ab07e4..4b240d87d0 100644
 +  curl_socket_t sockfd = CURL_SOCKET_BAD;
 +  int rc;
 +  timediff_t timeout_ms;
-+  size_t hostname_len;
 +  struct Curl_addrinfo *ai = NULL;
 +  struct Curl_dns_entry *dns = NULL;
 +  enum resolve_t rc_resolve;
 +
 +  *control_fd = CURL_SOCKET_BAD;
++
++  /* The ASSOCIATE request always targets 0.0.0.0:0 (see Step 3);
++   * the real destination is carried per-datagram in the UDP header. */
++  (void)target_host;
++  (void)target_port;
 +
 +  timeout_ms = Curl_timeleft(data, NULL, TRUE);
 +  if(timeout_ms < 0)
@@ -1013,30 +1017,24 @@ index a7b5ab07e4..4b240d87d0 100644
 +    goto out;
 +  }
 +
-+  /* Step 3: Send UDP ASSOCIATE request with target as destination */
-+  hostname_len = strlen(target_host);
++  /* Step 3: Send UDP ASSOCIATE request. RFC 1928: DST.ADDR/DST.PORT
++   * indicate the address and port the client expects to use for UDP
++   * datagrams, and 0.0.0.0:0 is the recommended value for clients that
++   * bind their own UDP socket. Some relays (residential proxy pools)
++   * reject associations requested for a hostname and silently drop the
++   * datagrams that follow, so always request 0.0.0.0:0. */
 +  {
 +    size_t idx = 0;
-+    unsigned char addr4[4];
 +    buf[idx++] = 5; /* VER */
 +    buf[idx++] = 3; /* CMD: UDP ASSOCIATE */
 +    buf[idx++] = 0; /* RSV */
-+
-+    if(1 == Curl_inet_pton(AF_INET, target_host, addr4)) {
-+      buf[idx++] = 1; /* ATYP: IPv4 */
-+      memcpy(&buf[idx], addr4, 4);
-+      idx += 4;
-+    }
-+    else {
-+      buf[idx++] = 3; /* ATYP: DOMAINNAME */
-+      if(hostname_len > 255)
-+        hostname_len = 255;
-+      buf[idx++] = (unsigned char)hostname_len;
-+      memcpy(&buf[idx], target_host, hostname_len);
-+      idx += hostname_len;
-+    }
-+    buf[idx++] = (unsigned char)((target_port >> 8) & 0xff);
-+    buf[idx++] = (unsigned char)(target_port & 0xff);
++    buf[idx++] = 1; /* ATYP: IPv4 */
++    buf[idx++] = 0; /* DST.ADDR: 0.0.0.0 */
++    buf[idx++] = 0;
++    buf[idx++] = 0;
++    buf[idx++] = 0;
++    buf[idx++] = 0; /* DST.PORT: 0 */
++    buf[idx++] = 0;
 +
 +    result = socks5_send_all(sockfd, buf, idx);
 +    if(result)
@@ -1136,6 +1134,7 @@ index a7b5ab07e4..4b240d87d0 100644
 +                                    int target_port)
 +{
 +  unsigned char addr4[4];
++  unsigned char addr6[16];
 +  size_t idx = 0;
 +
 +  header_buf[idx++] = 0; /* RSV */
@@ -1146,6 +1145,11 @@ index a7b5ab07e4..4b240d87d0 100644
 +    header_buf[idx++] = 1; /* ATYP: IPv4 */
 +    memcpy(&header_buf[idx], addr4, 4);
 +    idx += 4;
++  }
++  else if(target_host && (1 == Curl_inet_pton(AF_INET6, target_host, addr6))) {
++    header_buf[idx++] = 4; /* ATYP: IPv6 */
++    memcpy(&header_buf[idx], addr6, 16);
++    idx += 16;
 +  }
 +  else if(target_host) {
 +    size_t hostlen = strlen(target_host);
@@ -1265,7 +1269,7 @@ index dff26e6b4b..7992c7cf64 100644
  
  struct Names {
 diff --git a/lib/vquic/curl_ngtcp2.c b/lib/vquic/curl_ngtcp2.c
-index 7d681e5853..b2d915fe76 100644
+index 7d681e5853..65f14631f0 100644
 --- a/lib/vquic/curl_ngtcp2.c
 +++ b/lib/vquic/curl_ngtcp2.c
 @@ -63,6 +63,8 @@
@@ -1806,15 +1810,25 @@ index 7d681e5853..b2d915fe76 100644
  {
    ngtcp2_settings *s = &ctx->settings;
    ngtcp2_transport_params *t = &ctx->transport_params;
-@@ -342,7 +837,6 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+@@ -342,7 +837,16 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
    s->log_printf = NULL;
  #endif
  
 -  (void)data;
++  /* Through a SOCKS5 UDP relay the wire datagram carries a 10-byte SOCKS5
++   * header in front of the QUIC packet. Residential proxy pools tunnel the
++   * datagrams through encapsulation with a reduced path MTU: packets
++   * > ~1280 bytes are silently dropped at the relay, which kills the
++   * connection as soon as ngtcp2 upgrades to 1472-byte 1-RTT packets.
++   * quic-go caps packets at 1280 for the same reason. Cap the payload we
++   * generate so the on-wire datagram stays <= 1290 bytes (1280 + 10 hdr). */
++  if(ctx->socks5_udp_relay)
++    s->max_tx_udp_payload_size = 1280;
++
    s->initial_ts = pktx->ts;
    s->handshake_timeout = QUIC_HANDSHAKE_TIMEOUT;
    s->max_window = 100 * ctx->max_stream_window;
-@@ -358,6 +852,9 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+@@ -358,6 +862,9 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
    if(ctx->qlogfd != -1) {
      s->qlog_write = qlog_callback;
    }
@@ -1824,7 +1838,7 @@ index 7d681e5853..b2d915fe76 100644
  }
  
  #ifdef USE_OPENSSL
-@@ -448,6 +945,20 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -448,6 +955,20 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
      SSL_CTX_set_keylog_callback(ssl_ctx, keylog_callback);
    }
  
@@ -1845,7 +1859,7 @@ index 7d681e5853..b2d915fe76 100644
    /* OpenSSL always tries to verify the peer, this only says whether it should
     * fail to connect if the verification fails, or if it should continue
     * anyway. In the latter case the result of the verification is checked with
-@@ -455,6 +966,196 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -455,6 +976,196 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
    SSL_CTX_set_verify(ssl_ctx, conn->ssl_config.verifypeer ?
                       SSL_VERIFY_PEER : SSL_VERIFY_NONE, NULL);
  
@@ -2042,7 +2056,7 @@ index 7d681e5853..b2d915fe76 100644
    /* give application a chance to interfere with SSL set up. */
    if(data->set.ssl.fsslctx) {
      /* When a user callback is installed to modify the SSL_CTX,
-@@ -523,8 +1224,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -523,8 +1234,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    SSL_set_connect_state(ctx->ssl);
    SSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
  
@@ -2053,7 +2067,7 @@ index 7d681e5853..b2d915fe76 100644
    if(alpn)
      SSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
  
-@@ -588,13 +1289,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -588,13 +1299,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    }
  
    /* strip the first byte (the length) from NGHTTP3_ALPN_H3 */
@@ -2070,7 +2084,7 @@ index 7d681e5853..b2d915fe76 100644
    return CURLE_OK;
  }
  #elif defined(USE_WOLFSSL)
-@@ -718,8 +1417,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -718,8 +1427,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    wolfSSL_set_connect_state(ctx->ssl);
    wolfSSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
  
@@ -2081,7 +2095,7 @@ index 7d681e5853..b2d915fe76 100644
    if(alpn)
      wolfSSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
  
-@@ -1383,6 +2082,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
+@@ -1383,6 +2092,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
    }
  
    nghttp3_settings_default(&ctx->h3settings);
@@ -2116,7 +2130,7 @@ index 7d681e5853..b2d915fe76 100644
  
    rc = nghttp3_conn_client_new(&ctx->h3conn,
                                 &ngh3_callbacks,
-@@ -2347,6 +3074,7 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
+@@ -2347,6 +3084,7 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
  
    memset(ctx, 0, sizeof(*ctx));
    ctx->qlogfd = -1;
@@ -2124,7 +2138,7 @@ index 7d681e5853..b2d915fe76 100644
    ctx->call_data = save;
  }
  
-@@ -2372,6 +3100,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
+@@ -2372,6 +3110,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
              SOCKERRNO == EINTR);
      }
  
@@ -2138,7 +2152,7 @@ index 7d681e5853..b2d915fe76 100644
      cf_ngtcp2_ctx_clear(ctx);
    }
  
-@@ -2387,6 +3122,10 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
+@@ -2387,6 +3132,10 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
    CF_DATA_SAVE(save, cf, data);
    CURL_TRC_CF(data, cf, "destroy");
    if(ctx) {
@@ -2149,7 +2163,7 @@ index 7d681e5853..b2d915fe76 100644
      cf_ngtcp2_ctx_clear(ctx);
      free(ctx);
    }
-@@ -2432,19 +3171,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2432,19 +3181,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(result)
      return result;
  
@@ -2187,7 +2201,7 @@ index 7d681e5853..b2d915fe76 100644
  
    result = vquic_ctx_init(&ctx->q);
    if(result)
-@@ -2474,6 +3227,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2474,6 +3237,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(rc)
      return CURLE_QUIC_CONNECT_ERROR;
  
@@ -2205,7 +2219,7 @@ index 7d681e5853..b2d915fe76 100644
  #ifdef USE_GNUTLS
    ngtcp2_conn_set_tls_native_handle(ctx->qconn, ctx->gtls->session);
  #else
-@@ -2570,6 +3334,13 @@ out:
+@@ -2570,6 +3344,13 @@ out:
  
      CURL_TRC_CF(data, cf, "connect, remote closed, reconnect after %dms",
                  reconn_delay_ms);
@@ -2219,7 +2233,7 @@ index 7d681e5853..b2d915fe76 100644
      Curl_conn_cf_close(cf->next, data);
      cf_ngtcp2_ctx_clear(ctx);
      result = Curl_conn_cf_connect(cf->next, data, FALSE, done);
-@@ -2704,6 +3475,10 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+@@ -2704,6 +3485,10 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
    struct cf_ngtcp2_ctx *ctx = NULL;
    struct Curl_cfilter *cf = NULL, *udp_cf = NULL;
    CURLcode result;
@@ -2230,7 +2244,7 @@ index 7d681e5853..b2d915fe76 100644
  
    (void)data;
    ctx = calloc(sizeof(*ctx), 1);
-@@ -2713,12 +3488,107 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+@@ -2713,12 +3498,160 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
    }
    ctx->qlogfd = -1;
    cf_ngtcp2_ctx_clear(ctx);
@@ -2320,9 +2334,62 @@ index 7d681e5853..b2d915fe76 100644
 +    ctx->socks5_relay_port = relay_port;
 +    ctx->socks5_udp_relay = TRUE;
 +
-+    /* Also store target info in quic context for packet wrapping */
-+    strncpy(ctx->q.socks5_target_host, target_host,
-+            sizeof(ctx->q.socks5_target_host) - 1);
++    /* Also store target info in quic context for packet wrapping.
++     * Resolve the target now so datagram headers carry an IP
++     * (ATYP 1/4): UDP relays commonly drop datagrams whose DST is a
++     * DOMAINNAME (ATYP 3). Prefer IPv4 for maximum relay support. */
++    {
++      struct Curl_dns_entry *tdns = NULL;
++      enum resolve_t trc;
++      struct Curl_addrinfo *thp;
++      char target_ip[256];
++
++      target_ip[0] = '\0';
++      trc = Curl_resolv(data, target_host, target_port, TRUE, &tdns);
++      if(trc == CURLRESOLV_PENDING) {
++        CURLcode wrc = Curl_resolver_wait_resolv(data, &tdns);
++        if(wrc)
++          trc = CURLRESOLV_ERROR;
++      }
++      if(trc != CURLRESOLV_ERROR && tdns && tdns->addr) {
++        for(thp = tdns->addr; thp; thp = thp->ai_next)
++          if(thp->ai_family == AF_INET)
++            break;
++        if(!thp)
++          thp = tdns->addr;
++        if(thp->ai_family == AF_INET) {
++          const unsigned char *a4 = (const unsigned char *)
++            &((struct sockaddr_in *)(void *)thp->ai_addr)->sin_addr;
++          msnprintf(target_ip, sizeof(target_ip), "%u.%u.%u.%u",
++                    a4[0], a4[1], a4[2], a4[3]);
++        }
++        else if(thp->ai_family == AF_INET6) {
++          const unsigned char *a6 = (const unsigned char *)
++            &((struct sockaddr_in6 *)(void *)thp->ai_addr)->sin6_addr;
++          msnprintf(target_ip, sizeof(target_ip),
++                    "%02x%02x:%02x%02x:%02x%02x:%02x%02x:"
++                    "%02x%02x:%02x%02x:%02x%02x:%02x%02x",
++                    a6[0], a6[1], a6[2], a6[3], a6[4], a6[5],
++                    a6[6], a6[7], a6[8], a6[9], a6[10], a6[11],
++                    a6[12], a6[13], a6[14], a6[15]);
++        }
++      }
++      if(tdns)
++        Curl_resolv_unlock(data, tdns);
++      if(target_ip[0]) {
++        strncpy(ctx->q.socks5_target_host, target_ip,
++                sizeof(ctx->q.socks5_target_host) - 1);
++        infof(data, "SOCKS5 UDP ASSOCIATE: datagram header DST %s:%u",
++              ctx->q.socks5_target_host, target_port);
++      }
++      else {
++        /* Fall back to the hostname: relays that do support
++         * DOMAINNAME headers keep working. */
++        strncpy(ctx->q.socks5_target_host, target_host,
++                sizeof(ctx->q.socks5_target_host) - 1);
++      }
++    }
++    ctx->q.socks5_target_host[sizeof(ctx->q.socks5_target_host) - 1] = '\0';
 +    ctx->q.socks5_target_port = target_port;
 +    ctx->q.socks5_udp_relay = TRUE;
 +
@@ -2339,7 +2406,7 @@ index 7d681e5853..b2d915fe76 100644
    if(result)
      goto out;
  
-@@ -2732,6 +3602,12 @@ out:
+@@ -2732,6 +3665,12 @@ out:
    if(result) {
      if(udp_cf)
        Curl_conn_cf_discard_sub(cf, udp_cf, data, TRUE);
