@@ -39,6 +39,7 @@ RUN mkdir -p nghttp3-${NGHTTP3_COMMIT}/lib/sfparse && \
     tar -xzf /tmp/sfparse.tar.gz --strip-components=1 -C nghttp3-${NGHTTP3_COMMIT}/lib/sfparse
 
 
+COPY nghttp3-${NGHTTP3_COMMIT}.patch nghttp3-${NGHTTP3_COMMIT}/
 RUN cd nghttp3-${NGHTTP3_COMMIT} && \
     patch -p1 < nghttp3-${NGHTTP3_COMMIT}.patch
 
@@ -46,6 +47,7 @@ RUN curl -L https://github.com/ngtcp2/ngtcp2/archive/${NGTCP2_COMMIT}.tar.gz -o 
     tar -xf ngtcp2-${NGTCP2_COMMIT}.tar.gz
 
 
+COPY ngtcp2-${NGTCP2_COMMIT}.patch ngtcp2-${NGTCP2_COMMIT}/
 RUN cd ngtcp2-${NGTCP2_COMMIT} && \
     patch -p1 < ngtcp2-${NGTCP2_COMMIT}.patch
 
