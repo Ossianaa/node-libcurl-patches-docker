@@ -4,7 +4,7 @@
  * Usage: test-fp <url> [options...]
  *
  * Options: curves=<list> perm=<perm> sigalgs=<list> fp-quic=<str>
- *          fp-settings=<str> fp-tp=<str> fp-tls=<str> ta=<hex>
+ *          fp-settings=<str> fp-tp=<str> fp-tls=<str> ta=<hex|names>
  *
  * Writes the response body (the fingerprint JSON from
  * https://fp.impersonate.pro/api/http3) to stdout.
