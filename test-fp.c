@@ -4,7 +4,7 @@
  * Usage: test-fp <url> [options...]
  *
  * Options: curves=<list> perm=<perm> sigalgs=<list> fp-quic=<str>
- *          fp-settings=<str> fp-tp=<str> fp-tls=<str>
+ *          fp-settings=<str> fp-tp=<str> fp-tls=<str> ta=<hex>
  *
  * Writes the response body (the fingerprint JSON from
  * https://fp.impersonate.pro/api/http3) to stdout.
@@ -62,6 +62,8 @@ int main(int argc, char **argv)
       curl_easy_setopt(e, CURLOPT_HTTP3_FP_TRANSPORT_PARAMS, argv[i] + 6);
     else if(!strncmp(argv[i], "fp-tls=", 7))
       curl_easy_setopt(e, CURLOPT_HTTP3_FP_TLS, argv[i] + 7);
+    else if(!strncmp(argv[i], "ta=", 3))
+      curl_easy_setopt(e, CURLOPT_TRUST_ANCHORS, argv[i] + 3);
     else {
       fprintf(stderr, "test-fp: unknown option '%s'\n", argv[i]);
       curl_easy_cleanup(e);

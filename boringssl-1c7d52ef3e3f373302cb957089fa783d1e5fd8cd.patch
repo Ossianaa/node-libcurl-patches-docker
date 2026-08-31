@@ -1035,7 +1035,7 @@ index 5923110..3e3ad94 100644
  }  // namespace
  
 diff --git a/ssl/ssl_lib.cc b/ssl/ssl_lib.cc
-index fd287f5..a8306c9 100644
+index fd287f5..b9beed7 100644
 --- a/ssl/ssl_lib.cc
 +++ b/ssl/ssl_lib.cc
 @@ -13,7 +13,9 @@
@@ -1059,7 +1059,7 @@ index fd287f5..a8306c9 100644
    CRYPTO_new_ex_data(&ex_data);
  }
  
-@@ -567,7 +570,27 @@ SSL *SSL_new(SSL_CTX *ctx) {
+@@ -567,7 +570,32 @@ SSL *SSL_new(SSL_CTX *ctx) {
    ssl->config->ocsp_stapling_enabled = ctx_impl->ocsp_stapling_enabled;
    ssl->config->handoff = ctx_impl->handoff;
    ssl->quic_method = ctx_impl->quic_method;
@@ -1084,11 +1084,16 @@ index fd287f5..a8306c9 100644
 +  }
 +  SSL_enable_signed_cert_timestamps(ssl.get());
 +  SSL_set_enable_ech_grease(ssl.get(), 1);
-+  SSL_set1_requested_trust_anchors(ssl.get(), nullptr, 0);
++  // Fingerprint profile: if the SSL_CTX carries a requested trust anchor
++  // list (SSL_CTX_set1_requested_trust_anchors), keep it; otherwise default
++  // to an empty list so the trust_anchors extension is still announced.
++  if (!ssl->ctx->requested_trust_anchors) {
++    SSL_set1_requested_trust_anchors(ssl.get(), nullptr, 0);
++  }
    if (!ssl->method->ssl_new(ssl.get()) ||
        !ssl->ctx->x509_method->ssl_new(ssl->s3->hs.get())) {
      return nullptr;
-@@ -3514,7 +3537,7 @@ static int Configure(SSLContext *ctx) {
+@@ -3514,7 +3542,7 @@ static int Configure(SSLContext *ctx) {
  }
  
  static int Configure(SSL *ssl) {
@@ -1097,7 +1102,7 @@ index fd287f5..a8306c9 100644
  
    return SSL_set_min_proto_version(ssl, TLS1_2_VERSION) &&
           SSL_set_max_proto_version(ssl, TLS1_3_VERSION) &&
-@@ -3662,6 +3685,110 @@ int SSL_set_compliance_policy(SSL *ssl, enum ssl_compliance_policy_t policy) {
+@@ -3662,6 +3690,110 @@ int SSL_set_compliance_policy(SSL *ssl, enum ssl_compliance_policy_t policy) {
    }
  }
  
