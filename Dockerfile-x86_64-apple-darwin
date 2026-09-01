@@ -197,6 +197,7 @@ RUN mkdir dist && \
     cp /ngtcp2-${NGTCP2_COMMIT}/build/installed/lib/libngtcp2.a /dist && \
     cp /ngtcp2-${NGTCP2_COMMIT}/build/installed/lib/libngtcp2_crypto_boringssl.a /dist && \
     cp /nghttp3-${NGHTTP3_COMMIT}/build/installed/lib/libnghttp3.a /dist && \
+    cp /nghttp2-${NGHTTP2_COMMIT}/build/installed/lib/libnghttp2.a /dist && \
     cp /boringssl-${BORINGSSL_COMMIT}/build/lib/libcrypto.a /dist && \
     cp /boringssl-${BORINGSSL_COMMIT}/build/lib/libssl.a /dist
 

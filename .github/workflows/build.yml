@@ -198,12 +198,11 @@ jobs:
       - name: Set Release name
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
       - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          prerelease: false
+        env:
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+        run: |
+          gh release view "$RELEASE_VERSION" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_VERSION" --title "Release $RELEASE_VERSION"
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4

@@ -49,7 +49,7 @@ docker build . -f Dockerfile-arm64-apple-darwin -t curl_arm64-apple-darwin
 docker run --rm -v /path/to/your:/output curl_arm64-apple-darwin
 ```
 
-Now `libcrypto.a` `libssl.a` `libzstd.a` `libngtcp2.a` `libngtcp2_crypto_boringssl.a` `libnghttp3.a` `libcurl.a` are generated in `/path/to/your`.
+Now `libcrypto.a` `libssl.a` `libzstd.a` `libngtcp2.a` `libngtcp2_crypto_boringssl.a` `libnghttp3.a` `libnghttp2.a` `libcurl.a` are generated in `/path/to/your`.
 
 ### Windows
 ```bash
