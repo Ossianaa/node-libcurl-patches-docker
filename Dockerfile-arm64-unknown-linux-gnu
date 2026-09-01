@@ -72,7 +72,7 @@ RUN curl -L https://github.com/nghttp2/nghttp2/archive/${NGHTTP2_COMMIT}.tar.gz 
 
 RUN cd nghttp2-${NGHTTP2_COMMIT} && \
     mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=1 -DCMAKE_INSTALL_PREFIX=./installed -DENABLE_SHARED_LIB=0 -DENABLE_STATIC_LIB=1 .. && \
     cmake --build . --config Release --target install
 
 RUN curl -L https://github.com/google/boringssl/archive/${BORINGSSL_COMMIT}.tar.gz -o boringssl-${BORINGSSL_COMMIT}.tar.gz && \
