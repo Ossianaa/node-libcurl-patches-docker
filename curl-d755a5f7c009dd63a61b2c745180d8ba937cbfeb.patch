@@ -137,7 +137,7 @@ index c7ba3e20e3..48b06e88a7 100644
  
    if(ctx->state < CF_SETUP_CNNCT_HTTP_PROXY && cf->conn->bits.httpproxy) {
 diff --git a/lib/content_encoding.c b/lib/content_encoding.c
-index be7c075e94..5cbfa5e775 100644
+index be7c075e94..9b3e41ee20 100644
 --- a/lib/content_encoding.c
 +++ b/lib/content_encoding.c
 @@ -154,13 +154,11 @@ static CURLcode process_trailer(struct Curl_easy *data,
@@ -166,18 +166,19 @@ index be7c075e94..5cbfa5e775 100644
    if(zp->zlib_init == ZLIB_EXTERNAL_TRAILER)
      return process_trailer(data, zp);
  
-@@ -457,6 +459,11 @@ static CURLcode gzip_unencode_write(struct Curl_easy *data,
+@@ -456,6 +458,12 @@ static CURLcode gzip_unencode_write(struct Curl_easy *data,
+     return inflate_stream(data, writer, ZLIB_INIT_GZIP);
    }
  
- #ifndef OLD_ZLIB_SUPPORT
 +  if(zp->zlib_init == ZLIB_UNINIT) {
 +    /* The gzip stream has already ended. Ignore any trailing bytes that
 +       follow (browsers do). */
 +    return CURLE_OK;
 +  }
++
+ #ifndef OLD_ZLIB_SUPPORT
    /* Support for old zlib versions is compiled away and we are running with
       an old version, so return an error. */
-   return exit_zlib(data, z, &zp->zlib_init, CURLE_WRITE_ERROR);
 diff --git a/lib/curl_setup.h b/lib/curl_setup.h
 index ba14972e23..2b357e2811 100644
 --- a/lib/curl_setup.h
