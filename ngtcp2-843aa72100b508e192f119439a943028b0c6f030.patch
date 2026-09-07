@@ -115,7 +115,7 @@ index 9bc9a7b..ad72dc1 100644
   * @function
   *
 diff --git a/lib/ngtcp2_conn.c b/lib/ngtcp2_conn.c
-index 12cca44..7e11090 100644
+index 12cca44..4368953 100644
 --- a/lib/ngtcp2_conn.c
 +++ b/lib/ngtcp2_conn.c
 @@ -1820,6 +1820,14 @@ void ngtcp2_conn_del(ngtcp2_conn *conn) {
@@ -155,8 +155,8 @@ index 12cca44..7e11090 100644
 +  case NGTCP2_TP_ENTRY_TYPE_RAW:
 +    return len + ngtcp2_put_uvarintlen(ent->datalen) + ent->datalen;
 +  case NGTCP2_TP_ENTRY_TYPE_GREASE:
-+    /* GREASE ID is a random 60-bit varint (8-byte uvarint), value is
-+       2 random bytes. */
++    /* Chrome's fixed GREASE parameter id (0x10bd660917c6e651) encodes as
++       an 8-byte varint; the value is 2 random bytes. */
 +    return 8 + 1 + 2;
 +  case NGTCP2_TP_ENTRY_TYPE_VERSION_INFO:
 +    /* 4 chosen + datalen available versions (verbatim). */
