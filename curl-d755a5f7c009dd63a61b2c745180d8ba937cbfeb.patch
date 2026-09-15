@@ -1514,7 +1514,7 @@ index dff26e6b4b..41226d1036 100644
  
  struct Names {
 diff --git a/lib/vquic/curl_ngtcp2.c b/lib/vquic/curl_ngtcp2.c
-index 7d681e5853..6549271f74 100644
+index 7d681e5853..b852cfec3f 100644
 --- a/lib/vquic/curl_ngtcp2.c
 +++ b/lib/vquic/curl_ngtcp2.c
 @@ -24,6 +24,8 @@
@@ -1578,7 +1578,7 @@ index 7d681e5853..6549271f74 100644
  };
  
  /* How to access `call_data` from a cf_ngtcp2 filter */
-@@ -327,9 +351,509 @@ static void qlog_callback(void *user_data, uint32_t flags,
+@@ -327,9 +351,510 @@ static void qlog_callback(void *user_data, uint32_t flags,
  
  }
  
@@ -1628,20 +1628,18 @@ index 7d681e5853..6549271f74 100644
 +  return Curl_rand(data, buf, len);
 +}
 +
-+/* Fill |pval| with a random GREASE-style value. */
-+static void quic_fp_grease_u64(struct Curl_easy *data, uint64_t *pval)
++/* Fill |pval| with a random GREASE SETTINGS value.  Chrome sends a random
++ * 32-bit value per connection (every sample observed is <= 0xffffffff;
++ * it goes out as an 8-byte varint because it exceeds the 4-byte range). */
++static void quic_fp_grease_settings_value(struct Curl_easy *data,
++                                          uint64_t *pval)
 +{
-+  uint8_t buf[8];
++  uint8_t buf[4];
 +
 +  if(Curl_rand(data, buf, sizeof(buf)) != CURLE_OK)
 +    memset(buf, 0, sizeof(buf));
-+  buf[0] = (uint8_t)(0x10 | (buf[0] & 0x0f));
-+  *pval = 0;
-+  {
-+    size_t i;
-+    for(i = 0; i < sizeof(buf); ++i)
-+      *pval = (*pval << 8) | buf[i];
-+  }
++  *pval = ((uint64_t)buf[0] << 24) | ((uint64_t)buf[1] << 16) |
++          ((uint64_t)buf[2] << 8) | (uint64_t)buf[3];
 +}
 +
 +/* Fisher-Yates shuffle of |idx[0..n-1]| using curl's RNG. */
@@ -1667,19 +1665,22 @@ index 7d681e5853..6549271f74 100644
 +  }
 +}
 +
-+/* Fill |pval| with a GREASE SETTINGS ID that fingerprinting services
-+ * recognize as GREASE.  The two known-good IDs are the ones observed in
-+ * the Chrome 151 samples (0x19b4c8cd6 and 0x17c1d7fd48); Chrome picks
-+ * one per connection, so we rotate randomly. */
++/* Fill |pval| with a random GREASE SETTINGS ID.  Chrome picks a fresh one
++ * for every connection, always in the reserved form 0x1f * N + 0x21
++ * (RFC 9114 section 7.2.8.1); the values observed in the Chrome 151-153
++ * samples span roughly 2^32..2^38, so keep the same magnitude. */
 +static void quic_fp_grease_settings_id(struct Curl_easy *data, uint64_t *pval)
 +{
-+  static const uint64_t known_grease_ids[2] = {
-+      UINT64_C(0x19b4c8cd6), UINT64_C(0x17c1d7fd48)};
-+  uint8_t r;
++  uint8_t rbuf[6];
++  uint64_t v;
 +
-+  if(Curl_rand(data, &r, 1) != CURLE_OK)
-+    r = 0;
-+  *pval = known_grease_ids[r & 1];
++  if(Curl_rand(data, rbuf, sizeof(rbuf)) != CURLE_OK)
++    memset(rbuf, 0, sizeof(rbuf));
++  v = ((uint64_t)rbuf[0] << 40) | ((uint64_t)rbuf[1] << 32) |
++      ((uint64_t)rbuf[2] << 24) | ((uint64_t)rbuf[3] << 16) |
++      ((uint64_t)rbuf[4] << 8) | (uint64_t)rbuf[5];
++  v = (v & ((UINT64_C(1) << 38) - 1)) | (UINT64_C(1) << 32);
++  *pval = v - (v % 31) + 2;
 +}
 +
 +/* Parse CURLOPT_HTTP3_FP_QUIC: "scid=<len>" sets the client source
@@ -1735,7 +1736,7 @@ index 7d681e5853..6549271f74 100644
 +    if(end - p >= 6 && !strncmp(p, "GREASE", 6)) {
 +      ent = &ctx->fp_h3_settings[ctx->fp_h3_settings_len++];
 +      quic_fp_grease_settings_id(data, &ent->id);
-+      quic_fp_grease_u64(data, &ent->value);
++      quic_fp_grease_settings_value(data, &ent->value);
 +    }
 +    else {
 +      const char *colon = memchr(p, ':', (size_t)(end - p));
@@ -2091,7 +2092,7 @@ index 7d681e5853..6549271f74 100644
  {
    ngtcp2_settings *s = &ctx->settings;
    ngtcp2_transport_params *t = &ctx->transport_params;
-@@ -342,7 +866,16 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+@@ -342,7 +867,16 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
    s->log_printf = NULL;
  #endif
  
@@ -2109,7 +2110,7 @@ index 7d681e5853..6549271f74 100644
    s->initial_ts = pktx->ts;
    s->handshake_timeout = QUIC_HANDSHAKE_TIMEOUT;
    s->max_window = 100 * ctx->max_stream_window;
-@@ -358,6 +891,7 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+@@ -358,6 +892,7 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
    if(ctx->qlogfd != -1) {
      s->qlog_write = qlog_callback;
    }
@@ -2117,7 +2118,7 @@ index 7d681e5853..6549271f74 100644
  }
  
  #ifdef USE_OPENSSL
-@@ -421,6 +955,19 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -421,6 +956,19 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
  
    SSL_CTX_set_default_verify_paths(ssl_ctx);
  
@@ -2137,7 +2138,7 @@ index 7d681e5853..6549271f74 100644
    {
      const char *curves = conn->ssl_config.curves ?
        conn->ssl_config.curves : QUIC_GROUPS;
-@@ -448,6 +995,15 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -448,6 +996,15 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
      SSL_CTX_set_keylog_callback(ssl_ctx, keylog_callback);
    }
  
@@ -2153,7 +2154,7 @@ index 7d681e5853..6549271f74 100644
    /* OpenSSL always tries to verify the peer, this only says whether it should
     * fail to connect if the verification fails, or if it should continue
     * anyway. In the latter case the result of the verification is checked with
-@@ -455,6 +1011,204 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -455,6 +1012,204 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
    SSL_CTX_set_verify(ssl_ctx, conn->ssl_config.verifypeer ?
                       SSL_VERIFY_PEER : SSL_VERIFY_NONE, NULL);
  
@@ -2358,7 +2359,7 @@ index 7d681e5853..6549271f74 100644
    /* give application a chance to interfere with SSL set up. */
    if(data->set.ssl.fsslctx) {
      /* When a user callback is installed to modify the SSL_CTX,
-@@ -523,8 +1277,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -523,8 +1278,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    SSL_set_connect_state(ctx->ssl);
    SSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
  
@@ -2369,7 +2370,7 @@ index 7d681e5853..6549271f74 100644
    if(alpn)
      SSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
  
-@@ -588,13 +1342,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -588,13 +1343,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    }
  
    /* strip the first byte (the length) from NGHTTP3_ALPN_H3 */
@@ -2386,7 +2387,7 @@ index 7d681e5853..6549271f74 100644
    return CURLE_OK;
  }
  #elif defined(USE_WOLFSSL)
-@@ -718,8 +1470,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -718,8 +1471,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    wolfSSL_set_connect_state(ctx->ssl);
    wolfSSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
  
@@ -2397,7 +2398,7 @@ index 7d681e5853..6549271f74 100644
    if(alpn)
      wolfSSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
  
-@@ -1084,7 +1836,23 @@ static int cf_ngtcp2_get_select_socks(struct Curl_cfilter *cf,
+@@ -1084,7 +1837,23 @@ static int cf_ngtcp2_get_select_socks(struct Curl_cfilter *cf,
    struct cf_call_data save;
  
    CF_DATA_SAVE(save, cf, data);
@@ -2421,7 +2422,7 @@ index 7d681e5853..6549271f74 100644
  
    /* in HTTP/3 we can always get a frame, so check read */
    rv |= GETSOCK_READSOCK(0);
-@@ -1383,6 +2151,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
+@@ -1383,6 +2152,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
    }
  
    nghttp3_settings_default(&ctx->h3settings);
@@ -2456,7 +2457,7 @@ index 7d681e5853..6549271f74 100644
  
    rc = nghttp3_conn_client_new(&ctx->h3conn,
                                 &ngh3_callbacks,
-@@ -2347,6 +3143,8 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
+@@ -2347,6 +3144,8 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
  
    memset(ctx, 0, sizeof(*ctx));
    ctx->qlogfd = -1;
@@ -2465,7 +2466,7 @@ index 7d681e5853..6549271f74 100644
    ctx->call_data = save;
  }
  
-@@ -2372,6 +3170,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
+@@ -2372,6 +3171,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
              SOCKERRNO == EINTR);
      }
  
@@ -2479,7 +2480,7 @@ index 7d681e5853..6549271f74 100644
      cf_ngtcp2_ctx_clear(ctx);
    }
  
-@@ -2387,6 +3192,8 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
+@@ -2387,6 +3193,8 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
    CF_DATA_SAVE(save, cf, data);
    CURL_TRC_CF(data, cf, "destroy");
    if(ctx) {
@@ -2488,7 +2489,7 @@ index 7d681e5853..6549271f74 100644
      cf_ngtcp2_ctx_clear(ctx);
      free(ctx);
    }
-@@ -2432,19 +3239,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2432,19 +3240,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(result)
      return result;
  
@@ -2526,7 +2527,7 @@ index 7d681e5853..6549271f74 100644
  
    result = vquic_ctx_init(&ctx->q);
    if(result)
-@@ -2474,6 +3295,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2474,6 +3296,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(rc)
      return CURLE_QUIC_CONNECT_ERROR;
  
@@ -2544,7 +2545,7 @@ index 7d681e5853..6549271f74 100644
  #ifdef USE_GNUTLS
    ngtcp2_conn_set_tls_native_handle(ctx->qconn, ctx->gtls->session);
  #else
-@@ -2488,6 +3320,13 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2488,6 +3321,13 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    return CURLE_OK;
  }
  
@@ -2558,7 +2559,7 @@ index 7d681e5853..6549271f74 100644
  static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
                                    struct Curl_easy *data,
                                    bool blocking, bool *done)
-@@ -2503,19 +3342,63 @@ static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
+@@ -2503,19 +3343,63 @@ static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
      return CURLE_OK;
    }
  
@@ -2629,7 +2630,7 @@ index 7d681e5853..6549271f74 100644
    if(ctx->reconnect_at.tv_sec && Curl_timediff(now, ctx->reconnect_at) < 0) {
      /* Not time yet to attempt the next connect */
      CURL_TRC_CF(data, cf, "waiting for reconnect time");
-@@ -2570,6 +3453,13 @@ out:
+@@ -2570,6 +3454,13 @@ out:
  
      CURL_TRC_CF(data, cf, "connect, remote closed, reconnect after %dms",
                  reconn_delay_ms);
@@ -2643,7 +2644,7 @@ index 7d681e5853..6549271f74 100644
      Curl_conn_cf_close(cf->next, data);
      cf_ngtcp2_ctx_clear(ctx);
      result = Curl_conn_cf_connect(cf->next, data, FALSE, done);
-@@ -2587,8 +3477,9 @@ out:
+@@ -2587,8 +3478,9 @@ out:
      const char *r_ip = NULL;
      int r_port = 0;
  
@@ -2655,7 +2656,7 @@ index 7d681e5853..6549271f74 100644
      infof(data, "QUIC connect to %s port %u failed: %s",
            r_ip, r_port, curl_easy_strerror(result));
    }
-@@ -2696,6 +3587,129 @@ struct Curl_cftype Curl_cft_http3 = {
+@@ -2696,6 +3588,129 @@ struct Curl_cftype Curl_cft_http3 = {
    cf_ngtcp2_query,
  };
  
@@ -2785,7 +2786,7 @@ index 7d681e5853..6549271f74 100644
  CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
                                 struct Curl_easy *data,
                                 struct connectdata *conn,
-@@ -2704,6 +3718,7 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+@@ -2704,6 +3719,7 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
    struct cf_ngtcp2_ctx *ctx = NULL;
    struct Curl_cfilter *cf = NULL, *udp_cf = NULL;
    CURLcode result;
@@ -2793,7 +2794,7 @@ index 7d681e5853..6549271f74 100644
  
    (void)data;
    ctx = calloc(sizeof(*ctx), 1);
-@@ -2713,12 +3728,28 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+@@ -2713,12 +3729,28 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
    }
    ctx->qlogfd = -1;
    cf_ngtcp2_ctx_clear(ctx);
@@ -2823,7 +2824,7 @@ index 7d681e5853..6549271f74 100644
    if(result)
      goto out;
  
-@@ -2732,6 +3763,8 @@ out:
+@@ -2732,6 +3764,8 @@ out:
    if(result) {
      if(udp_cf)
        Curl_conn_cf_discard_sub(cf, udp_cf, data, TRUE);

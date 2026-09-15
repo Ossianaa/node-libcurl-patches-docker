@@ -115,7 +115,7 @@ index 9bc9a7b..ad72dc1 100644
   * @function
   *
 diff --git a/lib/ngtcp2_conn.c b/lib/ngtcp2_conn.c
-index 12cca44..4368953 100644
+index 12cca44..e741aa1 100644
 --- a/lib/ngtcp2_conn.c
 +++ b/lib/ngtcp2_conn.c
 @@ -1820,6 +1820,14 @@ void ngtcp2_conn_del(ngtcp2_conn *conn) {
@@ -133,7 +133,7 @@ index 12cca44..4368953 100644
  
    ngtcp2_pmtud_del(conn->pmtud);
    ngtcp2_pv_del(conn->pv);
-@@ -12004,6 +12012,78 @@ ngtcp2_conn_get_local_transport_params2(const ngtcp2_conn *conn) {
+@@ -12004,6 +12012,94 @@ ngtcp2_conn_get_local_transport_params2(const ngtcp2_conn *conn) {
    return &conn->local.transport_params;
  }
  
@@ -155,9 +155,9 @@ index 12cca44..4368953 100644
 +  case NGTCP2_TP_ENTRY_TYPE_RAW:
 +    return len + ngtcp2_put_uvarintlen(ent->datalen) + ent->datalen;
 +  case NGTCP2_TP_ENTRY_TYPE_GREASE:
-+    /* Chrome's fixed GREASE parameter id (0x10bd660917c6e651) encodes as
-+       an 8-byte varint; the value is 2 random bytes. */
-+    return 8 + 1 + 2;
++    /* The id and value were generated once when the custom transport
++       parameters were installed, so both passes agree. */
++    return len + ngtcp2_put_uvarintlen(ent->datalen) + ent->datalen;
 +  case NGTCP2_TP_ENTRY_TYPE_VERSION_INFO:
 +    /* 4 chosen + datalen available versions (verbatim). */
 +    return len + ngtcp2_put_uvarintlen(4 + ent->datalen) +
@@ -183,36 +183,52 @@ index 12cca44..4368953 100644
 +}
 +
 +/*
-+ * conn_generate_grease_id fills |p| (8 bytes) with the GREASE transport
-+ * parameter ID value used by Chrome (0x10bd660917c6e651).  It is written
-+ * as a regular varint (first byte 0xc4...): fp.impersonate.pro reports
-+ * this as GREASE with id 0x10bd660917c6e600, matching the Chrome 151
-+ * sample.
++ * conn_generate_grease_id returns a random GREASE transport parameter ID.
++ * Chrome picks a fresh one for every connection, always in the reserved
++ * form 31 * N + 27 (RFC 9000 section 18.1); the ids observed in the
++ * Chrome 151-153 samples span roughly 2^57..2^62, so keep the same
++ * magnitude (8-byte varints).
 + */
-+static void conn_generate_grease_id(ngtcp2_conn *conn, uint8_t *p) {
-+  static const uint8_t chrome_grease_id[8] = {
-+      0x10, 0xbd, 0x66, 0x09, 0x17, 0xc6, 0xe6, 0x51};
++static uint64_t conn_generate_grease_id(ngtcp2_conn *conn) {
++  uint8_t randbuf[8];
++  uint64_t v = 0;
++  size_t i;
 +
-+  (void)conn;
-+  memcpy(p, chrome_grease_id, 8);
++  conn->callbacks.rand(randbuf, sizeof(randbuf), &conn->local.settings.rand_ctx);
++  for (i = 0; i < sizeof(randbuf); ++i) {
++    v = (v << 8) | randbuf[i];
++  }
++  v = (v & 0x3fffffffffffffffULL) | 0x0200000000000000ULL;
++  return v - (v % 31) + 27;
 +}
 +
 +/*
-+ * conn_generate_grease_value fills |p| (2 bytes) with a random GREASE
-+ * value (Chrome randomizes it per connection).
++ * conn_generate_grease_value_len returns the length of the random GREASE
++ * transport parameter value.  Chrome varies it per connection; the
++ * samples show 1..13 bytes.
 + */
-+static void conn_generate_grease_value(ngtcp2_conn *conn, uint8_t *p) {
-+  uint8_t randbuf[2];
++static size_t conn_generate_grease_value_len(ngtcp2_conn *conn) {
++  uint8_t randbuf[1];
 +
 +  conn->callbacks.rand(randbuf, sizeof(randbuf), &conn->local.settings.rand_ctx);
-+  p[0] = randbuf[0];
-+  p[1] = randbuf[1];
++  return (size_t)1 + (randbuf[0] % 13);
++}
++
++/*
++ * conn_generate_grease_value fills |p| (|len| bytes) with a random GREASE
++ * value (Chrome randomizes both the length and the contents).
++ */
++static void conn_generate_grease_value(ngtcp2_conn *conn, uint8_t *p,
++                                       size_t len) {
++  if (len) {
++    conn->callbacks.rand(p, len, &conn->local.settings.rand_ctx);
++  }
 +}
 +
  ngtcp2_ssize ngtcp2_conn_encode_local_transport_params(ngtcp2_conn *conn,
                                                         uint8_t *dest,
                                                         size_t destlen) {
-@@ -12013,10 +12093,144 @@ ngtcp2_ssize ngtcp2_conn_encode_local_transport_params(ngtcp2_conn *conn,
+@@ -12013,10 +12109,158 @@ ngtcp2_ssize ngtcp2_conn_encode_local_transport_params(ngtcp2_conn *conn,
  ngtcp2_ssize ngtcp2_conn_encode_local_transport_params2(const ngtcp2_conn *conn,
                                                          uint8_t *dest,
                                                          size_t destlen) {
@@ -240,19 +256,11 @@ index 12cca44..4368953 100644
 +
 +        switch (ent->type) {
 +        case NGTCP2_TP_ENTRY_TYPE_GREASE: {
-+          uint8_t greaseidbuf[8];
-+          uint8_t greasevaluebuf[2];
-+          uint64_t id = 0;
-+          size_t j;
-+
-+          conn_generate_grease_id(conn, greaseidbuf);
-+          conn_generate_grease_value(conn, greasevaluebuf);
-+          for (j = 0; j < 8; ++j) {
-+            id = (id << 8) | greaseidbuf[j];
++          p = ngtcp2_put_uvarint(p, ent->id);
++          p = ngtcp2_put_uvarint(p, ent->datalen);
++          if (ent->datalen) {
++            p = ngtcp2_cpymem(p, ent->data, ent->datalen);
 +          }
-+          p = ngtcp2_put_uvarint(p, id);
-+          p = ngtcp2_put_uvarint(p, 2);
-+          p = ngtcp2_cpymem(p, greasevaluebuf, 2);
 +          break;
 +        }
 +        case NGTCP2_TP_ENTRY_TYPE_VARINT:
@@ -317,6 +325,28 @@ index 12cca44..4368953 100644
 +
 +  for (i = 0; i < nentries; ++i) {
 +    uint8_t *datacopy = NULL;
++
++    if (entries[i].type == NGTCP2_TP_ENTRY_TYPE_GREASE) {
++      /* Generate the GREASE id and value now: the encoder and the length
++         calculation both read them from the entry, so they have to be
++         fixed before either pass runs. */
++      copy[i] = entries[i];
++      copy[i].id = conn_generate_grease_id(conn);
++      copy[i].datalen = conn_generate_grease_value_len(conn);
++      copy[i].data = ngtcp2_mem_malloc(conn->mem, copy[i].datalen);
++      if (copy[i].data == NULL) {
++        size_t j;
++
++        for (j = 0; j < i; ++j) {
++          ngtcp2_mem_free(conn->mem, (uint8_t *)copy[j].data);
++        }
++        ngtcp2_mem_free(conn->mem, copy);
++        return NGTCP2_ERR_NOMEM;
++      }
++      conn_generate_grease_value(conn, (uint8_t *)copy[i].data,
++                                 copy[i].datalen);
++      continue;
++    }
 +
 +    if (entries[i].type == NGTCP2_TP_ENTRY_TYPE_RAW ||
 +        entries[i].type == NGTCP2_TP_ENTRY_TYPE_VERSION_INFO) {
