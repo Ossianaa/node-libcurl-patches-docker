@@ -25,10 +25,10 @@ index 1b19c681d2..ae12c4c872 100644
    if(WIN32)
      option(USE_WIN32_LDAP "Use Windows LDAP implementation" ON)
 diff --git a/include/curl/curl.h b/include/curl/curl.h
-index bf71d82fb4..18a09914cf 100644
+index bf71d82fb4..682dc8e348 100644
 --- a/include/curl/curl.h
 +++ b/include/curl/curl.h
-@@ -2210,6 +2210,51 @@ typedef enum {
+@@ -2210,6 +2210,56 @@ typedef enum {
    /* set a specific client IP for HAProxy PROXY protocol header? */
    CURLOPT(CURLOPT_HAPROXY_CLIENT_IP, CURLOPTTYPE_STRINGPOINT, 323),
  
@@ -77,6 +77,11 @@ index bf71d82fb4..18a09914cf 100644
 +     sample list is used. An empty string sends the extension with an
 +     empty list. */
 +  CURLOPT(CURLOPT_TRUST_ANCHORS, CURLOPTTYPE_STRINGPOINT, 337),
++  /* Initial packet number for every QUIC packet number space (HTTP/3).
++     Must be in the range [0, INT32_MAX]; 0 keeps the ngtcp2 default.
++     Chrome starts at 1 and H3 fingerprint checkers report the value, so
++     it is configurable here. */
++  CURLOPT(CURLOPT_HTTP3_FP_INITIAL_PKT_NUM, CURLOPTTYPE_LONG, 338),
    CURLOPT_LASTENTRY /* the last unused */
  } CURLoption;
  
@@ -201,10 +206,10 @@ index 8a053480e9..52d98ee8af 100644
   * Return the n-th header entry or NULL if it does not exist.
   */
 diff --git a/lib/easyoptions.c b/lib/easyoptions.c
-index e69c658b0c..dea33d8417 100644
+index e69c658b0c..86eec3370b 100644
 --- a/lib/easyoptions.c
 +++ b/lib/easyoptions.c
-@@ -133,6 +133,15 @@ struct curl_easyoption Curl_easyopts[] = {
+@@ -133,6 +133,16 @@ struct curl_easyoption Curl_easyopts[] = {
    {"HSTS_CTRL", CURLOPT_HSTS_CTRL, CURLOT_LONG, 0},
    {"HTTP09_ALLOWED", CURLOPT_HTTP09_ALLOWED, CURLOT_LONG, 0},
    {"HTTP200ALIASES", CURLOPT_HTTP200ALIASES, CURLOT_SLIST, 0},
@@ -213,6 +218,7 @@ index e69c658b0c..dea33d8417 100644
 +  {"HTTP2_STREAMS", CURLOPT_HTTP2_STREAMS, CURLOT_STRING, 0},
 +  {"HTTP2_WINDOW_UPDATE", CURLOPT_HTTP2_WINDOW_UPDATE, CURLOT_LONG, 0},
 +  {"HTTP2_STREAM_ID", CURLOPT_HTTP2_STREAM_ID, CURLOT_LONG, 0},
++  {"HTTP3_FP_INITIAL_PKT_NUM", CURLOPT_HTTP3_FP_INITIAL_PKT_NUM, CURLOT_LONG, 0},
 +  {"HTTP3_FP_QUIC", CURLOPT_HTTP3_FP_QUIC, CURLOT_STRING, 0},
 +  {"HTTP3_FP_SETTINGS", CURLOPT_HTTP3_FP_SETTINGS, CURLOT_STRING, 0},
 +  {"HTTP3_FP_TRANSPORT_PARAMS", CURLOPT_HTTP3_FP_TRANSPORT_PARAMS, CURLOT_STRING, 0},
@@ -220,7 +226,7 @@ index e69c658b0c..dea33d8417 100644
    {"HTTPAUTH", CURLOPT_HTTPAUTH, CURLOT_VALUES, 0},
    {"HTTPGET", CURLOPT_HTTPGET, CURLOT_LONG, 0},
    {"HTTPHEADER", CURLOPT_HTTPHEADER, CURLOT_SLIST, 0},
-@@ -340,8 +349,13 @@ struct curl_easyoption Curl_easyopts[] = {
+@@ -340,8 +350,13 @@ struct curl_easyoption Curl_easyopts[] = {
    {"TLSAUTH_PASSWORD", CURLOPT_TLSAUTH_PASSWORD, CURLOT_STRING, 0},
    {"TLSAUTH_TYPE", CURLOPT_TLSAUTH_TYPE, CURLOT_STRING, 0},
    {"TLSAUTH_USERNAME", CURLOPT_TLSAUTH_USERNAME, CURLOT_STRING, 0},
@@ -234,7 +240,7 @@ index e69c658b0c..dea33d8417 100644
    {"TRANSFERTEXT", CURLOPT_TRANSFERTEXT, CURLOT_LONG, 0},
    {"TRANSFER_ENCODING", CURLOPT_TRANSFER_ENCODING, CURLOT_LONG, 0},
    {"UNIX_SOCKET_PATH", CURLOPT_UNIX_SOCKET_PATH, CURLOT_STRING, 0},
-@@ -373,6 +387,6 @@ struct curl_easyoption Curl_easyopts[] = {
+@@ -373,6 +388,6 @@ struct curl_easyoption Curl_easyopts[] = {
   */
  int Curl_easyopts_check(void)
  {
@@ -742,10 +748,10 @@ index c8b059498f..78c408acfe 100644
    case HTTPREQ_POST:
    case HTTPREQ_POST_FORM:
 diff --git a/lib/setopt.c b/lib/setopt.c
-index 0d399adfe8..6e804c7b02 100644
+index 0d399adfe8..2d388c3436 100644
 --- a/lib/setopt.c
 +++ b/lib/setopt.c
-@@ -3170,6 +3170,73 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
+@@ -3170,6 +3170,79 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
    case CURLOPT_QUICK_EXIT:
      data->set.quick_exit = (0 != va_arg(param, long)) ? 1L:0L;
      break;
@@ -813,6 +819,12 @@ index 0d399adfe8..6e804c7b02 100644
 +    if(arg < -1)
 +      return CURLE_BAD_FUNCTION_ARGUMENT;
 +    data->set.http2_stream_id = arg;
++    break;
++  case CURLOPT_HTTP3_FP_INITIAL_PKT_NUM:
++    arg = va_arg(param, long);
++    if(arg < 0 || arg > INT_MAX)
++      return CURLE_BAD_FUNCTION_ARGUMENT;
++    data->set.http3_fp_initial_pkt_num = arg;
 +    break;
 +
 +#endif
@@ -1460,7 +1472,7 @@ index 61dad442dd..166cc6f8aa 100644
      data->set.str[STRING_SSL_PINNEDPUBLICKEY];
    data->set.ssl.primary.cert_blob = data->set.blobs[BLOB_CERT];
 diff --git a/lib/urldata.h b/lib/urldata.h
-index dff26e6b4b..41226d1036 100644
+index dff26e6b4b..20f6987af7 100644
 --- a/lib/urldata.h
 +++ b/lib/urldata.h
 @@ -273,6 +273,7 @@ struct ssl_primary_config {
@@ -1504,17 +1516,18 @@ index dff26e6b4b..41226d1036 100644
    STRING_LAST /* not used, just an end-of-list marker */
  };
  
-@@ -1920,6 +1935,8 @@ struct UserDefined {
+@@ -1920,6 +1935,9 @@ struct UserDefined {
  #ifdef USE_WEBSOCKETS
    BIT(ws_raw_mode);
  #endif
 +  int http2_window_update;
 +  int http2_stream_id;
++  long http3_fp_initial_pkt_num; /* 0 keeps the ngtcp2 default */
  };
  
  struct Names {
 diff --git a/lib/vquic/curl_ngtcp2.c b/lib/vquic/curl_ngtcp2.c
-index 7d681e5853..b852cfec3f 100644
+index 7d681e5853..78d1cc8e06 100644
 --- a/lib/vquic/curl_ngtcp2.c
 +++ b/lib/vquic/curl_ngtcp2.c
 @@ -24,6 +24,8 @@
@@ -2092,7 +2105,7 @@ index 7d681e5853..b852cfec3f 100644
  {
    ngtcp2_settings *s = &ctx->settings;
    ngtcp2_transport_params *t = &ctx->transport_params;
-@@ -342,7 +867,16 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+@@ -342,7 +867,20 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
    s->log_printf = NULL;
  #endif
  
@@ -2107,10 +2120,14 @@ index 7d681e5853..b852cfec3f 100644
 +  if(ctx->socks5_udp_relay)
 +    s->max_tx_udp_payload_size = 1280;
 +
++  /* Chrome numbers its first Initial packet 1 and fingerprint checkers
++     report it; ngtcp2 defaults to 0. */
++  s->initial_pkt_num = (uint32_t)data->set.http3_fp_initial_pkt_num;
++
    s->initial_ts = pktx->ts;
    s->handshake_timeout = QUIC_HANDSHAKE_TIMEOUT;
    s->max_window = 100 * ctx->max_stream_window;
-@@ -358,6 +892,7 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
+@@ -358,6 +896,7 @@ static void quic_settings(struct cf_ngtcp2_ctx *ctx,
    if(ctx->qlogfd != -1) {
      s->qlog_write = qlog_callback;
    }
@@ -2118,7 +2135,7 @@ index 7d681e5853..b852cfec3f 100644
  }
  
  #ifdef USE_OPENSSL
-@@ -421,6 +956,19 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -421,6 +960,19 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
  
    SSL_CTX_set_default_verify_paths(ssl_ctx);
  
@@ -2138,7 +2155,7 @@ index 7d681e5853..b852cfec3f 100644
    {
      const char *curves = conn->ssl_config.curves ?
        conn->ssl_config.curves : QUIC_GROUPS;
-@@ -448,6 +996,15 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -448,6 +1000,15 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
      SSL_CTX_set_keylog_callback(ssl_ctx, keylog_callback);
    }
  
@@ -2154,7 +2171,7 @@ index 7d681e5853..b852cfec3f 100644
    /* OpenSSL always tries to verify the peer, this only says whether it should
     * fail to connect if the verification fails, or if it should continue
     * anyway. In the latter case the result of the verification is checked with
-@@ -455,6 +1012,204 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -455,6 +1016,204 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
    SSL_CTX_set_verify(ssl_ctx, conn->ssl_config.verifypeer ?
                       SSL_VERIFY_PEER : SSL_VERIFY_NONE, NULL);
  
@@ -2359,7 +2376,7 @@ index 7d681e5853..b852cfec3f 100644
    /* give application a chance to interfere with SSL set up. */
    if(data->set.ssl.fsslctx) {
      /* When a user callback is installed to modify the SSL_CTX,
-@@ -523,8 +1278,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -523,8 +1282,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    SSL_set_connect_state(ctx->ssl);
    SSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
  
@@ -2370,7 +2387,7 @@ index 7d681e5853..b852cfec3f 100644
    if(alpn)
      SSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
  
-@@ -588,13 +1343,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -588,13 +1347,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    }
  
    /* strip the first byte (the length) from NGHTTP3_ALPN_H3 */
@@ -2387,7 +2404,7 @@ index 7d681e5853..b852cfec3f 100644
    return CURLE_OK;
  }
  #elif defined(USE_WOLFSSL)
-@@ -718,8 +1471,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -718,8 +1475,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    wolfSSL_set_connect_state(ctx->ssl);
    wolfSSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
  
@@ -2398,7 +2415,7 @@ index 7d681e5853..b852cfec3f 100644
    if(alpn)
      wolfSSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
  
-@@ -1084,7 +1837,23 @@ static int cf_ngtcp2_get_select_socks(struct Curl_cfilter *cf,
+@@ -1084,7 +1841,23 @@ static int cf_ngtcp2_get_select_socks(struct Curl_cfilter *cf,
    struct cf_call_data save;
  
    CF_DATA_SAVE(save, cf, data);
@@ -2422,7 +2439,7 @@ index 7d681e5853..b852cfec3f 100644
  
    /* in HTTP/3 we can always get a frame, so check read */
    rv |= GETSOCK_READSOCK(0);
-@@ -1383,6 +2152,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
+@@ -1383,6 +2156,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
    }
  
    nghttp3_settings_default(&ctx->h3settings);
@@ -2457,7 +2474,7 @@ index 7d681e5853..b852cfec3f 100644
  
    rc = nghttp3_conn_client_new(&ctx->h3conn,
                                 &ngh3_callbacks,
-@@ -2347,6 +3144,8 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
+@@ -2347,6 +3148,8 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
  
    memset(ctx, 0, sizeof(*ctx));
    ctx->qlogfd = -1;
@@ -2466,7 +2483,7 @@ index 7d681e5853..b852cfec3f 100644
    ctx->call_data = save;
  }
  
-@@ -2372,6 +3171,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
+@@ -2372,6 +3175,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
              SOCKERRNO == EINTR);
      }
  
@@ -2480,7 +2497,7 @@ index 7d681e5853..b852cfec3f 100644
      cf_ngtcp2_ctx_clear(ctx);
    }
  
-@@ -2387,6 +3193,8 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
+@@ -2387,6 +3197,8 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
    CF_DATA_SAVE(save, cf, data);
    CURL_TRC_CF(data, cf, "destroy");
    if(ctx) {
@@ -2489,7 +2506,7 @@ index 7d681e5853..b852cfec3f 100644
      cf_ngtcp2_ctx_clear(ctx);
      free(ctx);
    }
-@@ -2432,19 +3240,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2432,19 +3244,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(result)
      return result;
  
@@ -2527,7 +2544,7 @@ index 7d681e5853..b852cfec3f 100644
  
    result = vquic_ctx_init(&ctx->q);
    if(result)
-@@ -2474,6 +3296,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2474,6 +3300,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(rc)
      return CURLE_QUIC_CONNECT_ERROR;
  
@@ -2545,7 +2562,7 @@ index 7d681e5853..b852cfec3f 100644
  #ifdef USE_GNUTLS
    ngtcp2_conn_set_tls_native_handle(ctx->qconn, ctx->gtls->session);
  #else
-@@ -2488,6 +3321,13 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2488,6 +3325,13 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    return CURLE_OK;
  }
  
@@ -2559,7 +2576,7 @@ index 7d681e5853..b852cfec3f 100644
  static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
                                    struct Curl_easy *data,
                                    bool blocking, bool *done)
-@@ -2503,19 +3343,63 @@ static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
+@@ -2503,19 +3347,63 @@ static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
      return CURLE_OK;
    }
  
@@ -2630,7 +2647,7 @@ index 7d681e5853..b852cfec3f 100644
    if(ctx->reconnect_at.tv_sec && Curl_timediff(now, ctx->reconnect_at) < 0) {
      /* Not time yet to attempt the next connect */
      CURL_TRC_CF(data, cf, "waiting for reconnect time");
-@@ -2570,6 +3454,13 @@ out:
+@@ -2570,6 +3458,13 @@ out:
  
      CURL_TRC_CF(data, cf, "connect, remote closed, reconnect after %dms",
                  reconn_delay_ms);
@@ -2644,7 +2661,7 @@ index 7d681e5853..b852cfec3f 100644
      Curl_conn_cf_close(cf->next, data);
      cf_ngtcp2_ctx_clear(ctx);
      result = Curl_conn_cf_connect(cf->next, data, FALSE, done);
-@@ -2587,8 +3478,9 @@ out:
+@@ -2587,8 +3482,9 @@ out:
      const char *r_ip = NULL;
      int r_port = 0;
  
@@ -2656,7 +2673,7 @@ index 7d681e5853..b852cfec3f 100644
      infof(data, "QUIC connect to %s port %u failed: %s",
            r_ip, r_port, curl_easy_strerror(result));
    }
-@@ -2696,6 +3588,129 @@ struct Curl_cftype Curl_cft_http3 = {
+@@ -2696,6 +3592,129 @@ struct Curl_cftype Curl_cft_http3 = {
    cf_ngtcp2_query,
  };
  
@@ -2786,7 +2803,7 @@ index 7d681e5853..b852cfec3f 100644
  CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
                                 struct Curl_easy *data,
                                 struct connectdata *conn,
-@@ -2704,6 +3719,7 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+@@ -2704,6 +3723,7 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
    struct cf_ngtcp2_ctx *ctx = NULL;
    struct Curl_cfilter *cf = NULL, *udp_cf = NULL;
    CURLcode result;
@@ -2794,7 +2811,7 @@ index 7d681e5853..b852cfec3f 100644
  
    (void)data;
    ctx = calloc(sizeof(*ctx), 1);
-@@ -2713,12 +3729,28 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+@@ -2713,12 +3733,28 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
    }
    ctx->qlogfd = -1;
    cf_ngtcp2_ctx_clear(ctx);
@@ -2824,7 +2841,7 @@ index 7d681e5853..b852cfec3f 100644
    if(result)
      goto out;
  
-@@ -2732,6 +3764,8 @@ out:
+@@ -2732,6 +3768,8 @@ out:
    if(result) {
      if(udp_cf)
        Curl_conn_cf_discard_sub(cf, udp_cf, data, TRUE);
