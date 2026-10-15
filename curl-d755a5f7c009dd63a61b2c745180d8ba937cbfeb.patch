@@ -25,10 +25,10 @@ index 1b19c681d2..ae12c4c872 100644
    if(WIN32)
      option(USE_WIN32_LDAP "Use Windows LDAP implementation" ON)
 diff --git a/include/curl/curl.h b/include/curl/curl.h
-index bf71d82fb4..682dc8e348 100644
+index bf71d82fb4..d7ba9fdaa1 100644
 --- a/include/curl/curl.h
 +++ b/include/curl/curl.h
-@@ -2210,6 +2210,56 @@ typedef enum {
+@@ -2210,6 +2210,58 @@ typedef enum {
    /* set a specific client IP for HAProxy PROXY protocol header? */
    CURLOPT(CURLOPT_HAPROXY_CLIENT_IP, CURLOPTTYPE_STRINGPOINT, 323),
  
@@ -39,7 +39,9 @@ index bf71d82fb4..682dc8e348 100644
 +  CURLOPT(CURLOPT_HTTP2_STREAMS, CURLOPTTYPE_STRINGPOINT, 328),
 +  CURLOPT(CURLOPT_HTTP2_STREAM_ID, CURLOPTTYPE_LONG, 329),
 +  /* Specify preferred signature algorithms for certificate verification
-+     (BoringSSL-only). Comma-separated list as a single string. */
++     (BoringSSL-only). Comma-separated list as a single string. The keyword
++     GREASE sends a GREASE algorithm (0x?a?a, freshly generated) ahead of
++     the list, as Chrome does, e.g. "GREASE,0x0904,0x0401". */
 +  CURLOPT(CURLOPT_TLS_VERIFY_SIGALGS, CURLOPTTYPE_STRINGPOINT, 330),
 +  /* HTTP/3 fingerprint profile: source connection ID length, e.g. "scid=0"
 +     (a zero-length client connection ID, as sent by recent Chrome).
@@ -1527,7 +1529,7 @@ index dff26e6b4b..20f6987af7 100644
  
  struct Names {
 diff --git a/lib/vquic/curl_ngtcp2.c b/lib/vquic/curl_ngtcp2.c
-index 7d681e5853..78d1cc8e06 100644
+index 7d681e5853..6cf0bdd4ec 100644
 --- a/lib/vquic/curl_ngtcp2.c
 +++ b/lib/vquic/curl_ngtcp2.c
 @@ -24,6 +24,8 @@
@@ -2171,7 +2173,7 @@ index 7d681e5853..78d1cc8e06 100644
    /* OpenSSL always tries to verify the peer, this only says whether it should
     * fail to connect if the verification fails, or if it should continue
     * anyway. In the latter case the result of the verification is checked with
-@@ -455,6 +1016,204 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
+@@ -455,6 +1016,207 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
    SSL_CTX_set_verify(ssl_ctx, conn->ssl_config.verifypeer ?
                       SSL_VERIFY_PEER : SSL_VERIFY_NONE, NULL);
  
@@ -2260,13 +2262,16 @@ index 7d681e5853..78d1cc8e06 100644
 +      if(sigalgs && *sigalgs) {
 +        unsigned short prefs[64];
 +        size_t nprefs = 0;
++        bool grease = FALSE;
 +
 +        result = Curl_ssl_parse_sigalgs(sigalgs, prefs, sizeof(prefs) /
-+                                        sizeof(prefs[0]), &nprefs);
++                                        sizeof(prefs[0]), &nprefs, &grease);
 +        if(result) {
 +          failf(data, "invalid signature algorithms '%s'", sigalgs);
 +          goto out;
 +        }
++        if(grease)
++          SSL_CTX_set_grease_sigalgs_enabled(ssl_ctx, 1);
 +        if(nprefs &&
 +           !SSL_CTX_set_verify_algorithm_prefs(ssl_ctx, prefs,
 +                                               (unsigned int)nprefs)) {
@@ -2376,7 +2381,7 @@ index 7d681e5853..78d1cc8e06 100644
    /* give application a chance to interfere with SSL set up. */
    if(data->set.ssl.fsslctx) {
      /* When a user callback is installed to modify the SSL_CTX,
-@@ -523,8 +1282,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -523,8 +1285,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    SSL_set_connect_state(ctx->ssl);
    SSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
  
@@ -2387,7 +2392,7 @@ index 7d681e5853..78d1cc8e06 100644
    if(alpn)
      SSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
  
-@@ -588,13 +1347,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -588,13 +1350,11 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    }
  
    /* strip the first byte (the length) from NGHTTP3_ALPN_H3 */
@@ -2404,7 +2409,7 @@ index 7d681e5853..78d1cc8e06 100644
    return CURLE_OK;
  }
  #elif defined(USE_WOLFSSL)
-@@ -718,8 +1475,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
+@@ -718,8 +1478,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
    wolfSSL_set_connect_state(ctx->ssl);
    wolfSSL_set_quic_use_legacy_codepoint(ctx->ssl, 0);
  
@@ -2415,7 +2420,7 @@ index 7d681e5853..78d1cc8e06 100644
    if(alpn)
      wolfSSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
  
-@@ -1084,7 +1841,23 @@ static int cf_ngtcp2_get_select_socks(struct Curl_cfilter *cf,
+@@ -1084,7 +1844,23 @@ static int cf_ngtcp2_get_select_socks(struct Curl_cfilter *cf,
    struct cf_call_data save;
  
    CF_DATA_SAVE(save, cf, data);
@@ -2439,7 +2444,7 @@ index 7d681e5853..78d1cc8e06 100644
  
    /* in HTTP/3 we can always get a frame, so check read */
    rv |= GETSOCK_READSOCK(0);
-@@ -1383,6 +2156,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
+@@ -1383,6 +2159,34 @@ static int init_ngh3_conn(struct Curl_cfilter *cf)
    }
  
    nghttp3_settings_default(&ctx->h3settings);
@@ -2474,7 +2479,7 @@ index 7d681e5853..78d1cc8e06 100644
  
    rc = nghttp3_conn_client_new(&ctx->h3conn,
                                 &ngh3_callbacks,
-@@ -2347,6 +3148,8 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
+@@ -2347,6 +3151,8 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
  
    memset(ctx, 0, sizeof(*ctx));
    ctx->qlogfd = -1;
@@ -2483,7 +2488,7 @@ index 7d681e5853..78d1cc8e06 100644
    ctx->call_data = save;
  }
  
-@@ -2372,6 +3175,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
+@@ -2372,6 +3178,13 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
              SOCKERRNO == EINTR);
      }
  
@@ -2497,7 +2502,7 @@ index 7d681e5853..78d1cc8e06 100644
      cf_ngtcp2_ctx_clear(ctx);
    }
  
-@@ -2387,6 +3197,8 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
+@@ -2387,6 +3200,8 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
    CF_DATA_SAVE(save, cf, data);
    CURL_TRC_CF(data, cf, "destroy");
    if(ctx) {
@@ -2506,7 +2511,7 @@ index 7d681e5853..78d1cc8e06 100644
      cf_ngtcp2_ctx_clear(ctx);
      free(ctx);
    }
-@@ -2432,19 +3244,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2432,19 +3247,33 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(result)
      return result;
  
@@ -2544,7 +2549,7 @@ index 7d681e5853..78d1cc8e06 100644
  
    result = vquic_ctx_init(&ctx->q);
    if(result)
-@@ -2474,6 +3300,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2474,6 +3303,17 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    if(rc)
      return CURLE_QUIC_CONNECT_ERROR;
  
@@ -2562,7 +2567,7 @@ index 7d681e5853..78d1cc8e06 100644
  #ifdef USE_GNUTLS
    ngtcp2_conn_set_tls_native_handle(ctx->qconn, ctx->gtls->session);
  #else
-@@ -2488,6 +3325,13 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
+@@ -2488,6 +3328,13 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
    return CURLE_OK;
  }
  
@@ -2576,7 +2581,7 @@ index 7d681e5853..78d1cc8e06 100644
  static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
                                    struct Curl_easy *data,
                                    bool blocking, bool *done)
-@@ -2503,19 +3347,63 @@ static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
+@@ -2503,19 +3350,63 @@ static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
      return CURLE_OK;
    }
  
@@ -2647,7 +2652,7 @@ index 7d681e5853..78d1cc8e06 100644
    if(ctx->reconnect_at.tv_sec && Curl_timediff(now, ctx->reconnect_at) < 0) {
      /* Not time yet to attempt the next connect */
      CURL_TRC_CF(data, cf, "waiting for reconnect time");
-@@ -2570,6 +3458,13 @@ out:
+@@ -2570,6 +3461,13 @@ out:
  
      CURL_TRC_CF(data, cf, "connect, remote closed, reconnect after %dms",
                  reconn_delay_ms);
@@ -2661,7 +2666,7 @@ index 7d681e5853..78d1cc8e06 100644
      Curl_conn_cf_close(cf->next, data);
      cf_ngtcp2_ctx_clear(ctx);
      result = Curl_conn_cf_connect(cf->next, data, FALSE, done);
-@@ -2587,8 +3482,9 @@ out:
+@@ -2587,8 +3485,9 @@ out:
      const char *r_ip = NULL;
      int r_port = 0;
  
@@ -2673,7 +2678,7 @@ index 7d681e5853..78d1cc8e06 100644
      infof(data, "QUIC connect to %s port %u failed: %s",
            r_ip, r_port, curl_easy_strerror(result));
    }
-@@ -2696,6 +3592,129 @@ struct Curl_cftype Curl_cft_http3 = {
+@@ -2696,6 +3595,129 @@ struct Curl_cftype Curl_cft_http3 = {
    cf_ngtcp2_query,
  };
  
@@ -2803,7 +2808,7 @@ index 7d681e5853..78d1cc8e06 100644
  CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
                                 struct Curl_easy *data,
                                 struct connectdata *conn,
-@@ -2704,6 +3723,7 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+@@ -2704,6 +3726,7 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
    struct cf_ngtcp2_ctx *ctx = NULL;
    struct Curl_cfilter *cf = NULL, *udp_cf = NULL;
    CURLcode result;
@@ -2811,7 +2816,7 @@ index 7d681e5853..78d1cc8e06 100644
  
    (void)data;
    ctx = calloc(sizeof(*ctx), 1);
-@@ -2713,12 +3733,28 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
+@@ -2713,12 +3736,28 @@ CURLcode Curl_cf_ngtcp2_create(struct Curl_cfilter **pcf,
    }
    ctx->qlogfd = -1;
    cf_ngtcp2_ctx_clear(ctx);
@@ -2841,7 +2846,7 @@ index 7d681e5853..78d1cc8e06 100644
    if(result)
      goto out;
  
-@@ -2732,6 +3768,8 @@ out:
+@@ -2732,6 +3771,8 @@ out:
    if(result) {
      if(udp_cf)
        Curl_conn_cf_discard_sub(cf, udp_cf, data, TRUE);
@@ -3148,7 +3153,7 @@ index dbcd009d72..5f79bba081 100644
  
  CURLcode vquic_ctx_init(struct cf_quic_ctx *qctx);
 diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
-index 9f9c8d136a..5f2ef466e7 100644
+index 9f9c8d136a..8844f27f87 100644
 --- a/lib/vtls/openssl.c
 +++ b/lib/vtls/openssl.c
 @@ -32,6 +32,7 @@
@@ -3318,35 +3323,39 @@ index 9f9c8d136a..5f2ef466e7 100644
  
    SSL_CTX_set_options(backend->ctx, ctx_options);
  
-@@ -3692,6 +3777,35 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
+@@ -3692,6 +3777,39 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
    }
  #endif
  
 +  /* BoringSSL: allow application to set preferred signature algorithms for
 +     certificate verification via CURLOPT_TLS_VERIFY_SIGALGS. The option
 +     must be a comma-separated list of numeric scheme identifiers (decimal
-+     or 0x-prefixed hex). Example: "0x0401,0x0501". */
++     or 0x-prefixed hex); the keyword GREASE adds a GREASE algorithm ahead
++     of the list, as Chrome sends it. Example: "GREASE,0x0904,0x0401". */
 +#if defined(OPENSSL_IS_BORINGSSL)
 +  {
 +    const char *sigalgs = data->set.str[STRING_SSL_VERIFY_SIGALGS];
 +    if(sigalgs && *sigalgs) {
 +      unsigned short prefs[64];
 +      size_t nprefs = 0;
++      bool grease = FALSE;
 +
 +      result = Curl_ssl_parse_sigalgs(sigalgs, prefs, sizeof(prefs) /
-+                                      sizeof(prefs[0]), &nprefs);
++                                      sizeof(prefs[0]), &nprefs, &grease);
 +      if(result) {
 +        failf(data, "invalid CURLOPT_TLS_VERIFY_SIGALGS value");
 +        return result;
 +      }
++      if(grease)
++        SSL_CTX_set_grease_sigalgs_enabled(backend->ctx, 1);
 +      if(nprefs &&
 +         !SSL_CTX_set_verify_algorithm_prefs(backend->ctx, prefs,
 +                                             (unsigned int)nprefs)) {
 +        failf(data, "failed setting verify signature algorithms");
 +        return CURLE_SSL_CIPHER;
 +      }
-+      infof(data, "Set BoringSSL verify signature algorithms (%zu entries)",
-+            nprefs);
++      infof(data, "Set BoringSSL verify signature algorithms (%zu entries%s)",
++            nprefs, grease ? ", GREASE first" : "");
 +    }
 +  }
 +#endif
@@ -3354,7 +3363,7 @@ index 9f9c8d136a..5f2ef466e7 100644
  #ifdef USE_OPENSSL_SRP
    if(ssl_config->primary.username && Curl_auth_allowed_to_host(data)) {
      char * const ssl_username = ssl_config->primary.username;
-@@ -4817,6 +4931,7 @@ static void ossl_free_multi_ssl_backend_data(
+@@ -4817,6 +4935,7 @@ static void ossl_free_multi_ssl_backend_data(
  #endif /* HAVE_SSL_X509_STORE_SHARE */
  }
  
@@ -3394,10 +3403,10 @@ index 950faab889..bfead13c2b 100644
  #endif /* USE_OPENSSL */
  #endif /* HEADER_CURL_SSLUSE_H */
 diff --git a/lib/vtls/vtls.c b/lib/vtls/vtls.c
-index 494b660a98..db27da9518 100644
+index 494b660a98..ee04b5c969 100644
 --- a/lib/vtls/vtls.c
 +++ b/lib/vtls/vtls.c
-@@ -130,6 +130,168 @@ static bool blobcmp(struct curl_blob *first, struct curl_blob *second)
+@@ -130,6 +130,178 @@ static bool blobcmp(struct curl_blob *first, struct curl_blob *second)
    return !memcmp(first->data, second->data, first->len); /* same data */
  }
  
@@ -3539,12 +3548,13 @@ index 494b660a98..db27da9518 100644
 +
 +CURLcode Curl_ssl_parse_sigalgs(const char *value,
 +                                unsigned short *out, size_t outcap,
-+                                size_t *outlen)
++                                size_t *outlen, bool *grease)
 +{
 +  const char *p = value;
 +  size_t n = 0;
 +
 +  *outlen = 0;
++  *grease = FALSE;
 +  while(*p) {
 +    char *end = NULL;
 +    unsigned long v;
@@ -3553,6 +3563,15 @@ index 494b660a98..db27da9518 100644
 +      ++p;
 +    if(!*p)
 +      break;
++    /* The keyword GREASE sends a GREASE signature algorithm ahead of the
++       list, as Chrome does. BoringSSL generates the value itself (0x?a?a
++       per connection) and rejects unknown values passed as preferences,
++       so it cannot be expressed as a numeric entry. */
++    if(!strncmp(p, "GREASE", 6)) {
++      *grease = TRUE;
++      p += 6;
++      continue;
++    }
 +    v = strtoul(p, &end, 0);
 +    if(end == p || v > 0xffff || n >= outcap)
 +      return CURLE_BAD_FUNCTION_ARGUMENT;
@@ -3566,7 +3585,7 @@ index 494b660a98..db27da9518 100644
  #ifdef USE_SSL
  static const struct alpn_spec ALPN_SPEC_H10 = {
    { ALPN_HTTP_1_0 }, 1
-@@ -210,6 +372,7 @@ Curl_clone_primary_ssl_config(struct ssl_primary_config *source,
+@@ -210,6 +382,7 @@ Curl_clone_primary_ssl_config(struct ssl_primary_config *source,
    CLONE_STRING(clientcert);
    CLONE_STRING(cipher_list);
    CLONE_STRING(cipher_list13);
@@ -3574,7 +3593,7 @@ index 494b660a98..db27da9518 100644
    CLONE_STRING(pinned_key);
    CLONE_STRING(curves);
    CLONE_STRING(CRLfile);
-@@ -229,6 +392,7 @@ void Curl_free_primary_ssl_config(struct ssl_primary_config *sslc)
+@@ -229,6 +402,7 @@ void Curl_free_primary_ssl_config(struct ssl_primary_config *sslc)
    Curl_safefree(sslc->clientcert);
    Curl_safefree(sslc->cipher_list);
    Curl_safefree(sslc->cipher_list13);
@@ -3583,10 +3602,10 @@ index 494b660a98..db27da9518 100644
    Curl_safefree(sslc->cert_blob);
    Curl_safefree(sslc->ca_info_blob);
 diff --git a/lib/vtls/vtls.h b/lib/vtls/vtls.h
-index 8ad1cf6def..3be953cb94 100644
+index 8ad1cf6def..44febbebbe 100644
 --- a/lib/vtls/vtls.h
 +++ b/lib/vtls/vtls.h
-@@ -120,6 +120,20 @@ void Curl_ssl_sessionid_unlock(struct Curl_easy *data);
+@@ -120,6 +120,22 @@ void Curl_ssl_sessionid_unlock(struct Curl_easy *data);
   * (e.g. decrement refcount).
   */
  void Curl_ssl_kill_session(struct Curl_ssl_session *session);
@@ -3598,12 +3617,14 @@ index 8ad1cf6def..3be953cb94 100644
 +CURLcode Curl_ssl_parse_trust_anchors(const char *value,
 +                                      unsigned char *out, size_t outcap,
 +                                      size_t *outlen);
-+/* Parse a comma-separated list of numeric signature algorithm identifiers
-+ * ("0x0401,0x0501") into an array of uint16 values. Returns CURLE_OK and
-+ * sets *outlen, or CURLE_BAD_FUNCTION_ARGUMENT on invalid input. */
++/* Parse a comma-separated list of signature algorithm identifiers
++ * ("0x0401,0x0501") into an array of uint16 values. The keyword GREASE is
++ * accepted and sets *grease instead of yielding a value: the engine then
++ * sends a GREASE signature algorithm ahead of the list. Returns CURLE_OK
++ * and sets *outlen, or CURLE_BAD_FUNCTION_ARGUMENT on invalid input. */
 +CURLcode Curl_ssl_parse_sigalgs(const char *value,
 +                                unsigned short *out, size_t outcap,
-+                                size_t *outlen);
++                                size_t *outlen, bool *grease);
  /* delete a session from the cache
   * Sessionid mutex must be locked (see Curl_ssl_sessionid_lock).
   * This will call engine-specific curlssl_session_free function, which must
